@@ -1,0 +1,20 @@
+name: r_syslibs
+channels:
+  - defaults
+  - bioconda
+  - conda-forge
+dependencies:
+  - make
+  - glpk
+  - openssl
+  - libcurl
+  - libxml2
+  - zlib
+  - pkg-config
+  - imagemagick
+  - freetype
+  - lcms2
+  - libtiff
+  - libjpeg-turbo
+  - libpng
+prefix: /mnt/home/koncha/anaconda3/envs/r_syslibs
