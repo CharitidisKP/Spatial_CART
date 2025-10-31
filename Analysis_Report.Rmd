@@ -1,0 +1,56 @@
+---
+title: "Preleminary ST analysis"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+# 1. Introduction # 
+The dataset used for this analysis involves spatial transcriptomic data taken from lupus erythematosus patients which have undergone Car-T cell therapy. The ST data were retrieved from a CosMx machine. As of the moment the provided files are: 
+1. A raw expression matrix 
+2. A metadata file 
+3. Md5sum files 
+4. Seurat objects for two slides
+5. One TIFF file for 4 samples?
+
+- ** Input files: ** 
+
+
+```{r load_libs, echo = FALSE, eval = TRUE}
+
+library(SingleCellExperiment)
+library(Seurat)
+library(semla)
+library(ggplot2)
+library(dplyr)
+library(rjson)
+library(RColorBrewer)
+library(magrittr)
+library(pheatmap) 
+library(tidyverse)
+
+```
+
+
