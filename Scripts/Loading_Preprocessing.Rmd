@@ -1,0 +1,427 @@
+---
+title: "Loading and preprocessing of the CART data"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+```{r Libraries, include = FALSE}
+
+library(tidyverse)
+library(Seurat)
+library(SeuratObject)
+library(tiff)
+library(Matrix)
+library(patchwork)
+source(file = "My_Functions.R")
+
+```
+
+```{r Load the files}
+
+# My_Seurat_objs <- Load_My_Rds("../Data/")
+Raw_Counts <- read_csv("../Data/ASCLST12502_rawcount_exprMatrix.csv")
+Metadata <- read_csv("../Data/ASCLST12502_metadata.csv")
+
+```
+
+```{r Basic information on the pre-existing Seurat objects}
+
+# ## Explore which files were loaded ## 
+# names(My_Seurat_objs)
+# 
+# ## Select file to analyse ##
+# SeO_1 <- My_Seurat_objs$SeO_1
+# # SeO_1 <- UpdateSeuratObject(SeO_1)
+# 
+# ## Basic information on the slide ##
+# dim(SeO_1) 
+# Assays(SeO_1) 
+# DefaultAssay(SeO_1)
+# Reductions(SeO_1) 
+# Images(SeO_1)  
+# 
+# ## Basic metadata information ##
+# head(SeO_1@meta.data, 5)
+# names(SeO_1@meta.data)
+# Idents(SeO_1) %>% head()
+# table(Idents(SeO_1)) 
+# 
+# ## Information on spatial locations ##
+# cands <- grep("(x|y|px|mm)", colnames(SeO_1@meta.data), value = TRUE, ignore.case = TRUE)
+# cands
+
+```
+
+```{r Basic quality control}
+
+# cols <- intersect(c("nFeature_RNA", "nCount_RNA", "percent.mt"), colnames(SeO_1@meta.data))
+# if (length(cols)) VlnPlot(SeO_1, features = cols, pt.size = 0)
+
+```
+
+```{r Assay level check}
+
+# DefaultAssay(SeO_1) <- Assays(SeO_1)[1]
+# dim(GetAssayData(SeO_1, slot = "counts"))
+# head(VariableFeatures(SeO_1), 10)
+
+```
+
+```{r Visualisation}
+
+# DimPlot(SeO_1, reduction = "Export_PCA.1_1")
+# DimPlot(SeO_1, reduction = "Export_UMAP.1_1")
+# # SpatialDimPlot(SeO_1, images = Images(SeO_1)[1])
+
+```
+
+```{r Troubleshoot the image error}
+
+# packageVersion("Seurat"); packageVersion("SeuratObject")
+# 
+# img_nm <- Images(SeO_1)[1]
+# img_nm
+# class(SeO_1@images[[img_nm]])
+# 
+# coords <- tryCatch(GetTissueCoordinates(SeO_1, image = img_nm), error = function(e) NULL)
+# 
+# if (!is.null(coords) && nrow(coords)) {
+#   SpatialDimPlot(SeO_1, images = img_nm, crop = FALSE, combine = FALSE)[[1]]
+# } else {
+#   message("No tissue coordinates found for: ", img_nm)
+# }
+
+```
+
+This is printing out this error:
+Error in `geom_spatial()`:
+! Problem while converting geom to grob.
+ℹ Error occurred in the 1st layer.
+Caused by error in `unit()`:
+! 'x' and 'units' must have length > 0
+Run `rlang::last_trace()` to see where the error occurred.
+Error during wrapup: no slot of name "misc" for this object of class "FOV"
+Error: no more error handlers available (recursive errors?); invoking 'abort' restart
+
+Even though there are spot coordinates no plot is printed which means there is a problem with plotting the background image. 
+
+```{r Plot the cells on top of the background manually}
+
+# ## Load the TIFF as an array ##
+# bg <- readTIFF(bg_path, native = FALSE)
+# 
+# ## Get the dimentions for the plot ##
+# W <- dim(bg)[1]
+# H <- dim(bg)[2]
+# 
+# ## Convert to raster for the overlay ##
+# bg <- as.raster(bg)
+# 
+# ## Get the metadata and the scaling for CosMx (0.18 pixels per mm) ##
+# md <- SeO_1@meta.data
+# mm_per_px <- 0.18
+# 
+# ## Transform the values ##
+# df <- transform(md, x_px = x_slide_mm * mm_per_px,
+#                     y_px = y_slide_mm * mm_per_px) %>% 
+#   select(x_px, y_px, fov)
+# 
+# ## Get the ranges for the annotation ##
+# xr <- range(df$x_px)
+# yr <- range(df$y_px)
+# 
+# ## Visualise ##
+# New_plot <- ggplot(df, aes(x = x_px, y = y_px)) +
+#   annotation_raster(bg, xmin = xr[1], xmax = xr[2],
+#                     ymin = yr[1], ymax = yr[2],
+#                     interpolate = TRUE) +
+#   geom_point(size = 0.000001, colour = "white") +
+#   coord_fixed() +
+#   theme_void()
+# 
+# ## Save ##
+# # ggsave(filename = "Coords_with_background.png",
+# #        plot = New_plot,
+# #        path = "../Results/QC_Images/",
+# #        width = W, height = H,
+# #        dpi = 300, units = "px")
+
+```
+
+```{r Visualise just the FOVs}
+
+# ggplot(df, aes(x = x_px, y = y_px, colour = factor(fov))) +
+#   geom_point(size = 0.03, alpha = 0.9) +
+#   coord_fixed() +
+#   theme_void() +
+#   guides(colour = guide_legend(override.aes = list(size = 2))) +
+#   labs(colour = "FOV")
+
+```
+
+```{r Create a subset to speed things up}
+
+Wanted_Areas <- c("1", "2", "3", "34", "35", "36", "49", "50", "51", "69", "70", "71")
+
+Metadata_sub <- Metadata %>% 
+  rename(Cell_name = RNA_Export_Cell.Typing.InSituType.1_1_clusters) %>% 
+  filter(Area %in% Wanted_Areas)
+
+Raw_Counts_sub <- Raw_Counts %>%
+  rename(Cell_name = A1BG) %>%
+  filter(Cell_name %in% Metadata_sub$Cell_name)
+
+keep <- c("Wanted_Areas", "Metadata_sub", "Raw_Counts_sub")
+rm(list = setdiff(ls(envir = .GlobalEnv), keep), envir = .GlobalEnv)
+gc()
+
+# write_csv(x = Raw_Counts_sub, file = "../Data/Edited_data/Raw_Counts_sub.csv")
+# write_csv(x = Metadata_sub, file = "../Data/Edited_data/Metadata_sub.csv")
+
+```
+
+
+```{r Create a Seurat objet with the raw counts}
+
+## Load the files ##
+# Raw_Counts_sub <- read_csv("../Data/Edited_data/Raw_Counts_sub.csv")
+# Metadata_sub <- read_csv("../Data/Edited_data/Metadata_sub.csv") 
+
+## Make sure the files contain the same cells ##
+Common_cells <- intersect(Raw_Counts_sub$Cell_name, Metadata_sub$Cell_name)
+
+Raw_Counts_sub <- Raw_Counts_sub %>%
+  filter(Cell_name %in% Common_cells) 
+
+Metadata_sub <- Metadata_sub %>% 
+  filter(Cell_name %in% Common_cells) 
+
+# Cell_IDs <- as.character(Raw_Counts_sub$Cell_name)
+# Gene_IDs <- names(Raw_Counts_sub)[-1]
+
+Raw_Counts_sub_tidy <- Raw_Counts_sub %>%
+  mutate(across(-Cell_name, ~ suppressWarnings(as.numeric(.)))) %>%
+  replace(is.na(.), 0) %>% 
+  select(Cell_name, everything())
+
+Raw_Counts_matrix <- Raw_Counts_sub_tidy %>% 
+  column_to_rownames(var = "Cell_name") %>% 
+  as.matrix() %>% 
+  t()
+
+Raw_Counts_sparse <- Matrix(Raw_Counts_matrix, sparse = TRUE)
+
+dim(Raw_Counts_sparse)
+
+```
+
+```{r Create the Seurat Object}
+
+Tissue_bg <- readTIFF(source = "../Data/MCF-ASCIST-1250-Slide-CART (1979 8769 6063 4322).tiff", native = FALSE)
+Tissue_raster <- as.raster(Tissue_bg)
+
+SeO_1_raw <- CreateSeuratObject(counts = Raw_Counts_sparse,
+                                meta.data = Metadata_sub, 
+                                project = "CosMx_CART", 
+                                assay = "RNA", 
+                                min.cells = 0, 
+                                min.features = 0)
+
+SeO_1_raw@misc$background <- Tissue_raster
+
+```
+
+
+```{r Seurat quality control}
+VlnPlot(SeO_1_raw, features = c("nFeature_RNA", "nCount_RNA"), ncol = 2)
+
+## Get total counts for each cell ##
+SeO_1_raw$Total_Counts  <- Matrix::colSums(GetAssayData(SeO_1_raw, "RNA"))
+## Get number of features/genes for each cell ##
+SeO_1_raw$Num_Features  <- Matrix::colSums(GetAssayData(SeO_1_raw, "RNA") > 0)
+
+## Get a visual understanding of their distributions ##
+VlnPlot(SeO_1_raw, features = c("Total_Counts","Num_Features"), log = TRUE)
+
+ggplot(SeO_1_raw@meta.data, aes(Total_Counts, Num_Features)) + 
+  geom_point(alpha = 0.3)
+
+```
+
+
+```{r Filtering based on genes and cells}
+
+## Filter based on geometric means of the areas ##
+Geom_mean_area <- SeO_1_raw@meta.data %>%
+  ## Get the cell area sizes ##
+  transmute(Area_um2 = .data$Area.um2) %>%
+  filter(is.finite(Area_um2), Area_um2 > 0) %>%
+  ## Calculate the geometric mean of the areas ##
+  summarize(Geom_mean = exp(mean(log(Area_um2), 
+                          na.rm = TRUE)), 
+            .groups = "drop") %>%
+  ## Get the Geometric means ##
+  pull(Geom_mean)
+
+## Set the threshold for the cell filtering ##
+Threshold_area <- 5 * Geom_mean_area
+
+Area_um2_values <- SeO_1_raw@meta.data$Area.um2
+
+## Filter cells with less than 30 transcripts and an area larger than the threshold ##
+keep_cells <- with(SeO_1_raw@meta.data, Total_Counts >= 30 & is.finite(Area_um2_values) & Area_um2_values <= Threshold_area)
+keep_cells <- rownames(SeO_1_raw@meta.data)[keep_cells]
+
+## Subset based on the cell filtering and gene counts ##
+SeO_1_filtered <- subset(SeO_1_raw, cells = keep_cells)
+
+## Select genes that are transcribed in at least 1 cell ##
+## GetAssayData retrieves the counts (Do this in the filtered object )##
+keep_genes <- GetAssayData(SeO_1_filtered, assay = "RNA", layer = "counts") %>%
+  ## rowSums checks if they are transcribed ##
+  { rowSums(. > 0) } %>% 
+  ## Conversion of the vector to a tibble/df ##
+  enframe(name = "Gene", value = "nonzero") %>%
+  ## Keeps the expressed genes #
+  filter(nonzero > 0) %>%
+  ## Get the gene names only to work with subset() ##
+  pull(Gene)
+
+SeO_1_filtered <- subset(SeO_1_filtered, features = keep_genes)
+
+cat(sprintf("Kept %d cells, %d genes\nArea threshold used: %.3f\n", 
+            ncol(SeO_1_filtered), nrow(SeO_1_filtered), Threshold_area))
+
+```
+
+```{r Visual QC}
+
+Counts_filtered <- GetAssayData(SeO_1_filtered, layer = "counts")
+Mitochondrial_gene_num <- grep("^MT-", rownames(Counts_filtered))
+
+SeO_1_filtered$percent.mt <- Matrix::colSums(Counts_filtered[Mitochondrial_gene_num, , drop = FALSE]) /
+  Matrix::colSums(Counts_filtered) * 100
+
+paste0("Mitochondrial genes detected: ", length(Mitochondrial_gene_num))
+
+SeO_1_filtered$Total_Counts <- Matrix::colSums(Counts_filtered)
+SeO_1_filtered$Num_Features <- Matrix::colSums(Counts_filtered > 0)
+
+VlnPlot(SeO_1_filtered, features = c("Total_Counts", "Num_Features", "percent.mt"), 
+        pt.size = 0, ncol = 3)
+
+FeatureScatter(SeO_1_filtered, feature1 = "Total_Counts", feature2 = "Num_Features")
+FeatureScatter(SeO_1_filtered, feature1 = "Total_Counts", feature2 = "percent.mt")
+
+SeO_1_filtered@meta.data %>%
+  group_by(Area) %>% ## Area most likely contains the FOV information, needs adjustment ##
+  summarise(Cells = n(), Median_Counts = median(Total_Counts, na.rm = TRUE),
+            Median_Features = median(Num_Features, na.rm = TRUE),
+            Median_MT = if ("percent.mt" %in% names(cur_data_all())) 
+              median(percent.mt, na.rm = TRUE) else NA_real_) %>%
+  arrange(Median_Counts) %>%
+  print(n = 40)
+
+```
+
+```{r Background and negative probe quality control}
+
+SeO_1_filtered@meta.data <- SeO_1_filtered@meta.data %>%
+  ## Make sure all are numeric ##
+  mutate(across(c(propNegative, nCount_negprobes, nCount_falsecode, Total_Counts),
+                ~ suppressWarnings(as.numeric(.))),
+         ## Convert propNegative to a percentage ##
+        propNegative = if_else(max(propNegative, na.rm = TRUE) > 1,
+                               propNegative / 100,
+                               propNegative),
+        ## Compute background ratios ##
+        prop_negprobes_cnt = nCount_negprobes / Total_Counts,
+        prop_falsecode_cnt = nCount_falsecode / Total_Counts,
+        ## Final background metric ##
+        propNegative = coalesce(propNegative, prop_negprobes_cnt))
+
+bg_plots <- list()
+
+if ("propNegative" %in% colnames(SeO_1_filtered@meta.data)) {
+  bg_plots[["propNeg"]] <- VlnPlot(SeO_1_filtered, features = "propNegative",
+                                   group.by = "Area", pt.size = 0) + 
+    ggtitle("Proportion of Negative Probe Signal by FOV")
+}
+
+if ("prop_falsecode_cnt" %in% colnames(SeO_1_filtered@meta.data)) {
+  bg_plots[["false"]] <- VlnPlot(SeO_1_filtered, features = "prop_falsecode_cnt",
+                                 group.by = "Area", pt.size = 0) + 
+    ggtitle("Proportion of False Code Signal by FOV")
+}
+
+wrap_plots(bg_plots)
+
+SeO_1_filtered@meta.data %>%
+  group_by(Area) %>%
+  summarise(n_cells = n(), 
+            median_neg = median(propNegative, na.rm = TRUE),
+            median_false = median(prop_falsecode_cnt, na.rm = TRUE),
+            median_counts = median(Total_Counts, na.rm = TRUE)) %>%
+  arrange(desc(median_neg))
+
+SeO_1_filtered <- subset(SeO_1_filtered, subset = (is.na(propNegative) | propNegative < 0.05) &
+                           (is.na(prop_falsecode_cnt) | prop_falsecode_cnt < 0.05))
+
+summary(SeO_1_filtered@meta.data$propNegative)
+summary(SeO_1_filtered@meta.data$prop_falsecode_cnt)
+
+thr_neg <- quantile(SeO_1_filtered@meta.data$propNegative, 0.99, na.rm = TRUE)
+thr_fc <- quantile(SeO_1_filtered@meta.data$prop_falsecode_cnt, 0.99, na.rm = TRUE)
+cat("Suggested thresholds -> propNegative:", thr_neg, " prop_falsecode_cnt:", thr_fc, "\n")
+
+if (!is.finite(thr_neg)) thr_neg <- 0.05
+if (!is.finite(thr_fc))  thr_fc  <- 0.05
+
+keep_bg <- (is.na(SeO_1_filtered@meta.data$propNegative) | 
+              SeO_1_filtered@meta.data$propNegative < thr_neg) &
+           (is.na(SeO_1_filtered@meta.data$prop_falsecode_cnt) | 
+              SeO_1_filtered@meta.data$prop_falsecode_cnt < thr_fc)
+
+cat("Will keep", sum(keep_bg, na.rm = TRUE), "of", ncol(SeO_1_filtered), "cells\n")
+stopifnot(sum(keep_bg, na.rm = TRUE) > 0)
+
+cells_keep <- colnames(SeO_1_filtered)[keep_bg]
+SeO_1_filtered <- subset(SeO_1_filtered, cells = cells_keep)
+
+## Re filter the genes in case some of the removed resulted in counts of 0 ##
+keep_genes <- GetAssayData(SeO_1_filtered, assay = "RNA", layer = "counts") %>%
+  { rowSums(. > 0) } %>% 
+  enframe(name = "Gene", value = "nonzero") %>%
+  filter(nonzero > 0) %>%
+  pull(Gene)
+
+SeO_1_filtered <- subset(SeO_1_filtered, features = keep_genes)
+
+VlnPlot(SeO_1_filtered, features = intersect(c("propNegative", "prop_falsecode_cnt"), 
+                                             colnames(SeO_1_filtered@meta.data)), pt.size = 0)
+
+```
+
