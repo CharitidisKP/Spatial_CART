@@ -42,8 +42,27 @@ source(file = "My_Functions.R")
 ```{r Load the files}
 
 # My_Seurat_objs <- Load_My_Rds("../Data/")
-Raw_Counts <- read_csv("../Data/ASCLST12502_rawcount_exprMatrix.csv")
-Metadata <- read_csv("../Data/ASCLST12502_metadata.csv")
+# Raw_Counts <- read_csv("../Data/ASCLST12502_rawcount_exprMatrix.csv")
+# Metadata <- read_csv("../Data/ASCLST12502_metadata.csv")
+
+# Metadata <- Correct_Dataframes(Metadata) %>% 
+#   rename(Cell_ID = cell_id) %>% 
+#   select(Cell_ID, fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, everything())
+# 
+# Cell_IDs <- Raw_Counts[1]
+# 
+# Raw_Counts <- Correct_Dataframes(Raw_Counts) 
+# 
+# Raw_Counts["Cell_ID"] <- Cell_IDs
+# 
+# Raw_Counts <- Raw_Counts %>% 
+#   select(Cell_ID, everything())
+# 
+# write_csv(x = Raw_Counts, file = "../Data/ASCLST12502_rawcount_fixed.csv")
+# write_csv(x = Metadata, file = "../Data/ASCLST12502_metadata_fixed.csv")
+
+Raw_Counts <- read_csv("../Data/ASCLST12502_rawcount_fixed.csv")
+Metadata <- read_csv("../Data/ASCLST12502_metadata_fixed.csv")
 
 ```
 
@@ -187,14 +206,12 @@ Even though there are spot coordinates no plot is printed which means there is a
 Wanted_Areas <- c("1", "2", "3", "34", "35", "36", "49", "50", "51", "69", "70", "71")
 
 Metadata_sub <- Metadata %>% 
-  rename(Cell_name = RNA_Export_Cell.Typing.InSituType.1_1_clusters) %>% 
-  filter(Area %in% Wanted_Areas)
+  filter(fov %in% Wanted_Areas)
 
 Raw_Counts_sub <- Raw_Counts %>%
-  rename(Cell_name = A1BG) %>%
-  filter(Cell_name %in% Metadata_sub$Cell_name)
+  filter(Cell_ID %in% Metadata_sub$Cell_ID)
 
-keep <- c("Wanted_Areas", "Metadata_sub", "Raw_Counts_sub")
+keep <- c("Metadata_sub", "Raw_Counts_sub")
 rm(list = setdiff(ls(envir = .GlobalEnv), keep), envir = .GlobalEnv)
 gc()
 
@@ -211,24 +228,24 @@ gc()
 # Metadata_sub <- read_csv("../Data/Edited_data/Metadata_sub.csv") 
 
 ## Make sure the files contain the same cells ##
-Common_cells <- intersect(Raw_Counts_sub$Cell_name, Metadata_sub$Cell_name)
+Common_cells <- intersect(Raw_Counts_sub$Cell_ID, Metadata_sub$Cell_ID)
 
 Raw_Counts_sub <- Raw_Counts_sub %>%
-  filter(Cell_name %in% Common_cells) 
+  filter(Cell_ID %in% Common_cells) 
 
 Metadata_sub <- Metadata_sub %>% 
-  filter(Cell_name %in% Common_cells) 
+  filter(Cell_ID %in% Common_cells) 
 
-# Cell_IDs <- as.character(Raw_Counts_sub$Cell_name)
+# Cell_IDs <- as.character(Raw_Counts_sub$Cell_ID)
 # Gene_IDs <- names(Raw_Counts_sub)[-1]
 
 Raw_Counts_sub_tidy <- Raw_Counts_sub %>%
-  mutate(across(-Cell_name, ~ suppressWarnings(as.numeric(.)))) %>%
+  mutate(across(-Cell_ID, ~ suppressWarnings(as.numeric(.)))) %>%
   replace(is.na(.), 0) %>% 
-  select(Cell_name, everything())
+  select(Cell_ID, everything())
 
 Raw_Counts_matrix <- Raw_Counts_sub_tidy %>% 
-  column_to_rownames(var = "Cell_name") %>% 
+  column_to_rownames(var = "Cell_ID") %>% 
   as.matrix() %>% 
   t()
 
@@ -353,10 +370,6 @@ SeO_1_filtered@meta.data <- SeO_1_filtered@meta.data %>%
   ## Make sure all are numeric ##
   mutate(across(c(propNegative, nCount_negprobes, nCount_falsecode, Total_Counts),
                 ~ suppressWarnings(as.numeric(.))),
-         ## Convert propNegative to a percentage ##
-        propNegative = if_else(max(propNegative, na.rm = TRUE) > 1,
-                               propNegative / 100,
-                               propNegative),
         ## Compute background ratios ##
         prop_negprobes_cnt = nCount_negprobes / Total_Counts,
         prop_falsecode_cnt = nCount_falsecode / Total_Counts,
@@ -423,5 +436,87 @@ SeO_1_filtered <- subset(SeO_1_filtered, features = keep_genes)
 VlnPlot(SeO_1_filtered, features = intersect(c("propNegative", "prop_falsecode_cnt"), 
                                              colnames(SeO_1_filtered@meta.data)), pt.size = 0)
 
+
+## Save Rds object to continue from here next session ##
+# SaveSeuratRds(object = SeO_1_filtered, file = "../Data/Edited_data/SeO_1_After_bg_filtering.Rds")
+
 ```
+
+```{r Filtering based on spatial}
+
+Metadata_filtered <- SeO_1_filtered@meta.data
+
+xr <- range(Metadata_filtered$x_slide_mm, na.rm = TRUE)
+yr <- range(Metadata_filtered$y_slide_mm, na.rm = TRUE)
+
+summary(SeO_1_filtered@meta.data$x_slide_mm)
+summary(SeO_1_filtered@meta.data$y_slide_mm)
+length(unique(SeO_1_filtered@meta.data$Area))
+
+SeO_1_filtered@meta.data %>%
+  group_by(Area) %>%
+  summarise(xmin = min(x_slide_mm, na.rm = TRUE),
+            xmax = max(x_slide_mm, na.rm = TRUE),
+            ymin = min(y_slide_mm, na.rm = TRUE),
+            ymax = max(y_slide_mm, na.rm = TRUE))
+
+## Total counts in space ##
+ggplot(Metadata_filtered, aes(x = x_slide_mm, y = y_slide_mm, color = Total_Counts)) +
+  geom_point(size = 0.1, alpha = 0.8) +
+  coord_fixed(xlim = xr, ylim = yr) +
+  scale_color_viridis_c() +
+  theme_void() + 
+  ggtitle("Total counts (per cell)")
+
+## Number of features in space ##
+ggplot(Metadata_filtered, aes(x = x_slide_mm, y = y_slide_mm, color = Num_Features)) +
+  geom_point(size = 0.1, alpha = 0.8) +
+  coord_fixed(xlim = xr, ylim = yr) +
+  scale_color_viridis_c() +
+  theme_void() + 
+  ggtitle("Features detected (per cell)")
+
+## Background fractions in space (if present) ##
+if ("propNegative" %in% names(Metadata_filtered)) {
+  ggplot(Metadata_filtered, aes(x = x_slide_mm, y = y_slide_mm, color = propNegative)) +
+    geom_point(size = 0.1, alpha = 0.8) +
+    coord_fixed(xlim = xr, ylim = yr) +
+    scale_color_viridis_c(limits = c(0, quantile(Metadata_filtered$propNegative, 0.99, na.rm = TRUE))) +
+    theme_void() + 
+    ggtitle("Background (propNegative)")
+}
+
+if ("prop_falsecode_cnt" %in% names(Metadata_filtered)) {
+  ggplot(Metadata_filtered, aes(x = x_slide_mm, y = y_slide_mm, color = prop_falsecode_cnt)) +
+    geom_point(size = 0.1, alpha = 0.8) +
+    coord_fixed(xlim = xr, ylim = yr) +
+    scale_color_viridis_c(limits = c(0, quantile(Metadata_filtered$prop_falsecode_cnt, 0.99, na.rm = TRUE))) +
+    theme_void() + 
+    ggtitle("Background (false code fraction)")
+}
+
+## Counts per FOV ##
+ggplot(Metadata_filtered, aes(x = x_slide_mm, y = y_slide_mm, color = Total_Counts)) +
+  geom_point(size = 0.07, alpha = 0.8) +
+  # coord_fixed() +
+  scale_color_viridis_c() +
+  facet_wrap(~ Area, scales = "free") +
+  theme_void() + 
+  ggtitle("Total counts per FOV")
+
+## Background per FOV ##
+if ("propNegative" %in% names(Metadata_filtered)) {
+  ggplot(Metadata_filtered, aes(x = x_slide_mm, y = y_slide_mm, color = propNegative)) +
+    geom_point(size = 0.07, alpha = 0.8) +
+    coord_fixed() +
+    scale_color_viridis_c() +
+    facet_wrap(~ Area, scales = "free") +
+    theme_void() + 
+    ggtitle("propNegative per FOV")
+}
+
+```
+
+
+
 
