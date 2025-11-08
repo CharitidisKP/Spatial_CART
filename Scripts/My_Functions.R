@@ -1,3 +1,28 @@
+## Report for the analysis steps ##
+log_info <- function(note, fmt, ...) {
+  ts <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  msg <- trimws(sprintf(fmt, ...))   # remove leading/trailing spaces
+  header <- sprintf("==== %s ====", note)
+  date_line <- sprintf("Date: %s", ts)
+  
+  ## Console ##
+  cat("\n", header, "\n", date_line, "\n", msg, "\n", sep = "")
+  
+  ## File ##
+  cat(header, "\n", date_line, "\n", msg, "\n\n",
+      file = log_file, append = TRUE, sep = "")
+}
+
+## Save info on metrics ##
+add_metric <- function(Se_object, step, note = NA_character_) {
+  metrics <<- dplyr::bind_rows(metrics,
+                               tibble::tibble(time = Sys.time(),
+                                              step = step,
+                                              cells = ncol(Se_object),
+                                              genes = nrow(Se_object),
+                                              note = note))
+}
+
 ## Function to shift and fix dataframes ##
 Correct_Dataframes <- function(df) {
   ## Only works on dataframes ##
@@ -71,4 +96,8 @@ Load_My_Rds <- function(dir, file_pattern = "(?i)\\.rds$", slide_regex = "\\.Sli
 }
 
 
-## Function to map coordinates on top of the background image ##
+## Function add percent labels in the quality control figures ##
+lbl_cells_percent <- function(b) {
+  paste0(format(round(b * ncol(Counts_filtered)), 
+                big.mark = ","), " (", scales::percent(b, accuracy = 1), ")")
+}
