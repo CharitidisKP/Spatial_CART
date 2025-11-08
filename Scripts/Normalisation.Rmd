@@ -1,0 +1,66 @@
+---
+title: "Loading and preprocessing of the CART data"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+```{r Libraries, include = FALSE}
+
+library(tidyverse)
+library(Seurat)
+library(SeuratObject)
+library(Matrix)
+library(patchwork)
+
+```
+
+```{r Load the filtered seurat object}
+
+SeO_1_filtered <- readRDS(file = "../Data/Edited_data/SeO_1_filtered_final.Rds")
+
+```
+
+
+```{r Normalise the seurat object counts}
+
+SeO_1_norm <- NormalizeData(SeO_1_filtered, normalization.method = "LogNormalize",
+                                scale.factor = 1e4, layer = "counts", new.layer = "Log_norm")
+
+SeO_1_norm <- FindVariableFeatures(SeO_1_norm, nfeatures = 3000)
+
+SeO_1_norm <- ScaleData(SeO_1_norm, features = VariableFeatures(SeO_1_norm), 
+                        layer = "counts", new.layer = "Scaled_z")
+
+SeO_1_norm <- RunPCA(SeO_1_norm, features = VariableFeatures(SeO_1_norm))
+
+ElbowPlot(SeO_1_norm)
+
+SeO_1_norm <- RunUMAP(SeO_1_norm, dims = 1:30)
+
+DimPlot(SeO_1_norm, reduction = "umap", group.by = "fov")
+
+```
+
