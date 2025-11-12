@@ -33,7 +33,8 @@ library(tidyverse)
 library(Seurat)
 library(SeuratObject)
 library(Matrix)
-library(patchwork)
+library(SingleR)
+library(scRNAseq)
 
 ```
 
@@ -44,23 +45,37 @@ SeO_1_filtered <- readRDS(file = "../Data/Edited_data/SeO_1_filtered_final.Rds")
 ```
 
 
+```{r Get the specific slide}
+
+SeO_1_filtered@meta.data %>% 
+  select(Run_Tissue_name, slide_ID_numeric) %>% 
+  filter(slide_ID_numeric == 2)
+
+Se_by_slide <- SplitObject(SeO_1_filtered, split.by = "slide_ID_numeric")
+SeO_CART <- Se_by_slide[["2"]]
+
+```
+
+
 ```{r Normalise the seurat object counts}
 
-SeO_1_norm <- NormalizeData(SeO_1_filtered, normalization.method = "LogNormalize",
-                                scale.factor = 1e4, layer = "counts", new.layer = "Log_norm")
+SeO_CART_norm <- NormalizeData(SeO_CART, normalization.method = "LogNormalize",
+                                scale.factor = 1e4)
 
-SeO_1_norm <- FindVariableFeatures(SeO_1_norm, nfeatures = 3000)
+SeO_CART_norm <- FindVariableFeatures(SeO_CART_norm, nfeatures = 3000)
 
-SeO_1_norm <- ScaleData(SeO_1_norm, features = VariableFeatures(SeO_1_norm), 
-                        layer = "counts", new.layer = "Scaled_z")
+SeO_CART_norm <- ScaleData(SeO_CART_norm, features = VariableFeatures(SeO_CART_norm))
 
-SeO_1_norm <- RunPCA(SeO_1_norm, features = VariableFeatures(SeO_1_norm))
+SeO_CART_norm <- RunPCA(SeO_CART_norm, features = VariableFeatures(SeO_CART_norm))
 
-ElbowPlot(SeO_1_norm)
+ElbowPlot(SeO_CART_norm)
 
-SeO_1_norm <- RunUMAP(SeO_1_norm, dims = 1:30)
+SeO_CART_norm <- RunUMAP(SeO_CART_norm, dims = 1:30)
 
-DimPlot(SeO_1_norm, reduction = "umap", group.by = "fov")
+DimPlot(SeO_CART_norm, reduction = "umap", group.by = "fov")
+
+SeO_CART@meta.data$Cell_ID
+# SaveSeuratRds(object = SeO_1_norm, file = "../Data/Edited_data/SeO_1_norm.Rds")
 
 ```
 
