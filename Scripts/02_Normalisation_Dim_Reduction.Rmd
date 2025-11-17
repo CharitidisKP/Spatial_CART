@@ -1,0 +1,117 @@
+---
+title: "Normalisation, Scaling and Dimentionality reduction"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r Setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+```{r Libraries, include = FALSE}
+
+library(tidyverse)
+library(Seurat)
+library(SeuratObject)
+library(Matrix)
+
+```
+
+```{r Load the filtered seurat object}
+
+set.seed(1511)
+
+## Load the merged and filtered seurat object ##
+## Currently this doesnt exist ##
+SeO_CART <- readRDS(file = "../Data/Edited_data/Seurat_filtered_final.Rds")
+
+```
+
+```{r Normalise and scale the seurat object counts}
+
+SeO_CART_norm <- NormalizeData(SeO_CART, normalization.method = "LogNormalize",
+                                scale.factor = 1e4)
+
+SeO_CART_norm <- FindVariableFeatures(SeO_CART_norm, selection.method = "vst", nfeatures = 3000)
+
+SeO_CART_norm <- ScaleData(SeO_CART_norm, features = VariableFeatures(SeO_CART_norm))
+
+```
+
+```{r PCA prep}
+
+SeO_CART_norm <- RunPCA(SeO_CART_norm, features = VariableFeatures(object = SeO_CART_norm), npcs = 50)
+
+ElbowPlot(SeO_CART_norm, ndims = 50, reduction = "pca")
+
+DimPlot(SeO_CART_norm, reduction = "pca") + 
+  NoLegend()
+
+VizDimLoadings(SeO_CART_norm, dims = 1:2, reduction = "pca")
+
+## Retrieve standard deviations from the PCA ##
+stdev <- SeO_CART_norm[["pca"]]@stdev
+
+## Convert to variance explained per PC ##
+var_explained <- stdev^2 / sum(stdev^2)
+
+## Cumulative variance explained ##
+cum_var <- cumsum(var_explained)
+
+## Pick the number of PCs required to explain 50% of the variance ##
+## Change this number depending on the downstream analysis ##
+num_pcs <- which(cum_var >= 0.50)[1]
+
+## Combine the minimum cumulative variance with the elbow plot ##
+elbow_num <- which(diff(stdev) > -0.1)[1]
+n_pcs_use <- min(num_pcs, elbow_num)
+
+## Print the selected number ##
+cat("Using", n_pcs_use, "PCs (", round(cum_var[n_pcs_use] * 100, 1), "% variance)\n")
+
+```
+
+```{r Neighbors and clusters}
+
+SeO_CART_norm <- FindNeighbors(SeO_CART_norm, dims = 1:num_pcs)
+
+SeO_CART_norm <- FindClusters(SeO_CART_norm, 
+                              resolution = c(0.25, 0.5, 0.75, 1.0))
+
+Idents(SeO_CART_norm) <- "RNA_snn_res.0.5"
+
+```
+
+```{r UMAP prep}
+
+SeO_CART_norm <- RunUMAP(SeO_CART_norm, dims = 1:num_pcs)
+
+DimPlot(SeO_CART_norm, reduction = "umap", group.by = "fov")
+
+```
+
+
+```{r Save the normalised seurat object with PCAs and UMAPs}
+
+# SaveSeuratRds(object = SeO_CART_norm, file = "../Data/Edited_data/Seurat_normalised.Rds")
+
+```

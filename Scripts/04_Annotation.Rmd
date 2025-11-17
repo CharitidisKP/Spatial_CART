@@ -1,0 +1,41 @@
+---
+title: "Annotation of the batch corrected seurat object"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r Setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+```{r Libraries, include = FALSE}
+
+library(tidyverse)
+library(Seurat)
+library(SeuratObject)
+library(Matrix)
+library(harmony)
+library(SingleR)
+library(scRNAseq)
+
+```
+
