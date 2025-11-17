@@ -51,24 +51,6 @@ source(file = "My_Functions.R")
 ```{r Load the files}
 
 # My_Seurat_objs <- Load_My_Rds("../Data/")
-# Raw_Counts <- read_csv("../Data/ASCLST12502_rawcount_exprMatrix.csv")
-# Metadata <- read_csv("../Data/ASCLST12502_metadata.csv")
-
-# Metadata <- Correct_Dataframes(Metadata) %>% 
-#   rename(Cell_ID = cell_id) %>% 
-#   select(Cell_ID, fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, everything())
-# 
-# Cell_IDs <- Raw_Counts[1]
-# 
-# Raw_Counts <- Correct_Dataframes(Raw_Counts) 
-# 
-# Raw_Counts["Cell_ID"] <- Cell_IDs
-# 
-# Raw_Counts <- Raw_Counts %>% 
-#   select(Cell_ID, everything())
-# 
-# write_csv(x = Raw_Counts, file = "../Data/ASCLST12502_rawcount_fixed.csv")
-# write_csv(x = Metadata, file = "../Data/ASCLST12502_metadata_fixed.csv")
 
 Raw_Counts <- read_csv("../Data/ASCLST12502_rawcount_fixed.csv")
 Metadata <- read_csv("../Data/ASCLST12502_metadata_fixed.csv")
