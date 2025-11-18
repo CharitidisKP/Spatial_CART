@@ -72,26 +72,49 @@ Seurat_obj@meta.data <- Sample_meta
 
 ```{r Lets get a look at the FOVs before the anotation}
 
-fov_boxes_px <- Seurat_obj@meta.data %>%
-  group_by(Slide, fov) %>%
-  summarise(xmin = min(x_FOV_px, na.rm = TRUE),
-            xmax = max(x_FOV_px, na.rm = TRUE),
-            ymin = min(y_FOV_px, na.rm = TRUE),
-            ymax = max(y_FOV_px, na.rm = TRUE), 
-            .groups = "drop")
-
-ggplot(fov_boxes_px) +
-  geom_rect(aes(xmin = xmin, xmax = xmax,
-                ymin = ymin, ymax = ymax), 
-            fill = NA,color = "black") +
-  geom_text(aes(x = (xmin + xmax) / 2,
-                y = (ymin + ymax) / 2,
-                label = fov), size = 2) +
+  Seurat_obj@meta.data %>%
+  select(fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm) %>% 
+  transform(., x_px = x_slide_mm * 0.18,
+            y_px = y_slide_mm * 0.18) %>% 
+  ggplot(., aes(x = x_px, y = y_px, colour = factor(fov))) +
+  geom_point(size = 0.1, alpha = 0.6) +
   coord_equal() +
-  facet_wrap(~ Slide) +
-  labs(title = "FOV layout by slide", 
-       x = "x (mm)", y = "y (mm)") +
-  theme_minimal()
+  theme_void() +
+  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  labs(colour = "FOV", title = "Cells coloured by FOV")
+
+```
+
+```{r Load the reference from nanostring - 6K panel KidneyRCC}
+
+## Load the reference matrix from github ##
+Ref_mat <- read.csv("https://raw.githubusercontent.com/Nanostring-Biostats/CosMx-Cell-Profiles/main/Human/KidneyRCC_6k/KidneyRCC_6k.profiles.csv", 
+                    row.names = 1, header = TRUE)
+
+## Get the common cells between our seurat object counts and the reference ##
+Ref_genes <- rownames(Ref_mat)
+
+My_genes <- GetAssayData(Seurat_obj, layer = "counts") %>% 
+  rownames()
+
+Common_genes <- intersect(x = My_genes, y = Ref_genes)
+
+## Filter the reference based on the common panel ##
+Ref_mat_2 <- Ref_mat[is.element(rownames(Ref_mat), Common_genes), ]
+
+## Visualise for sanity ##
+pheatmap::pheatmap(sweep(Ref_mat_2, 1, pmax(apply(Ref_mat_2, 1, max), 0.2), "/"), 
+                   col = colorRampPalette(c("white", "darkblue"))(100))
+
+```
+
+```{r}
+
+InSituType::insitutype(x = )
+GetAssayData(assay = "RNA", layer = "counts")
+
+
+
 
 ```
 
