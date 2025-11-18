@@ -33,9 +33,65 @@ library(tidyverse)
 library(Seurat)
 library(SeuratObject)
 library(Matrix)
-library(harmony)
-library(SingleR)
-library(scRNAseq)
+library(InSituType)
+
+```
+
+```{r Load the batch corrected seurat oject}
+
+main_dir <- "~/P_lab/Spatial_CART/"
+Seurat_obj <- readRDS(file = paste0(main_dir, "Data/Edited_data/Seurat_obj_after_batch.Rds"))
+
+```
+
+```{r Load CSVs with the markers}
+
+Markers <- read_csv(file = paste0(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
+
+```
+
+```{r Provide the preexisting annotations as identities}
+
+Idents(Seurat_obj) <- "RNA_Export_Cell.Typing.InSituType.1_1_clusters"
+
+```
+
+```{r Create the sample id column}
+
+Sample_meta <- Seurat_obj@meta.data %>% 
+  mutate(Slide_num = as.integer(Slide_num), 
+  Sample = case_when(Slide_num == 1 & fov >=  1 & fov <= 28 ~ 4,
+                     Slide_num == 1 & fov >= 29 & fov <= 41 ~ 3,
+                     Slide_num == 1 & fov >= 42 & fov <= 54 ~ 2,
+                     Slide_num == 1 & fov >= 55 & fov <= 71 ~ 1,
+                     Slide_num == 2 ~ 5, TRUE ~ NA)) 
+
+Seurat_obj@meta.data <- Sample_meta
+
+```
+
+```{r Lets get a look at the FOVs before the anotation}
+
+fov_boxes_px <- Seurat_obj@meta.data %>%
+  group_by(Slide, fov) %>%
+  summarise(xmin = min(x_FOV_px, na.rm = TRUE),
+            xmax = max(x_FOV_px, na.rm = TRUE),
+            ymin = min(y_FOV_px, na.rm = TRUE),
+            ymax = max(y_FOV_px, na.rm = TRUE), 
+            .groups = "drop")
+
+ggplot(fov_boxes_px) +
+  geom_rect(aes(xmin = xmin, xmax = xmax,
+                ymin = ymin, ymax = ymax), 
+            fill = NA,color = "black") +
+  geom_text(aes(x = (xmin + xmax) / 2,
+                y = (ymin + ymax) / 2,
+                label = fov), size = 2) +
+  coord_equal() +
+  facet_wrap(~ Slide) +
+  labs(title = "FOV layout by slide", 
+       x = "x (mm)", y = "y (mm)") +
+  theme_minimal()
 
 ```
 
