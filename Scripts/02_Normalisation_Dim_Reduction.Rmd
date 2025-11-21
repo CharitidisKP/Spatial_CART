@@ -33,6 +33,8 @@ library(tidyverse)
 library(Seurat)
 library(SeuratObject)
 library(Matrix)
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+Init_project("~/P_lab/Spatial_CART/")
 
 ```
 
@@ -41,35 +43,35 @@ library(Matrix)
 set.seed(1511)
 
 ## Load the merged and filtered seurat object ##
-## Currently this doesnt exist ##
-SeO_CART <- readRDS(file = "../Data/Edited_data/Seurat_filtered_final.Rds")
+## Currently this doesn't exist ##
+Seurat_filtered <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_filtered_step_4.Rds"))
 
 ```
 
 ```{r Normalise and scale the seurat object counts}
 
-SeO_CART_norm <- NormalizeData(SeO_CART, normalization.method = "LogNormalize",
+Seurat_norm <- NormalizeData(Seurat_filtered, normalization.method = "LogNormalize",
                                 scale.factor = 1e4)
 
-SeO_CART_norm <- FindVariableFeatures(SeO_CART_norm, selection.method = "vst", nfeatures = 3000)
+Seurat_norm <- FindVariableFeatures(Seurat_norm, selection.method = "vst", nfeatures = 3000)
 
-SeO_CART_norm <- ScaleData(SeO_CART_norm, features = VariableFeatures(SeO_CART_norm))
+Seurat_norm <- ScaleData(Seurat_norm, features = VariableFeatures(Seurat_norm))
 
 ```
 
 ```{r PCA prep}
 
-SeO_CART_norm <- RunPCA(SeO_CART_norm, features = VariableFeatures(object = SeO_CART_norm), npcs = 50)
+Seurat_norm <- RunPCA(Seurat_norm, features = VariableFeatures(object = Seurat_norm), npcs = 50)
 
-ElbowPlot(SeO_CART_norm, ndims = 50, reduction = "pca")
+ElbowPlot(Seurat_norm, ndims = 50, reduction = "pca")
 
-DimPlot(SeO_CART_norm, reduction = "pca") + 
+DimPlot(Seurat_norm, reduction = "pca") + 
   NoLegend()
 
-VizDimLoadings(SeO_CART_norm, dims = 1:2, reduction = "pca")
+VizDimLoadings(Seurat_norm, dims = 1:2, reduction = "pca")
 
 ## Retrieve standard deviations from the PCA ##
-stdev <- SeO_CART_norm[["pca"]]@stdev
+stdev <- Seurat_norm[["pca"]]@stdev
 
 ## Convert to variance explained per PC ##
 var_explained <- stdev^2 / sum(stdev^2)
@@ -79,7 +81,7 @@ cum_var <- cumsum(var_explained)
 
 ## Pick the number of PCs required to explain 50% of the variance ##
 ## Change this number depending on the downstream analysis ##
-num_pcs <- which(cum_var >= 0.50)[1]
+num_pcs <- which(cum_var >= 0.60)[1]
 
 ## Combine the minimum cumulative variance with the elbow plot ##
 elbow_num <- which(diff(stdev) > -0.1)[1]
@@ -92,26 +94,26 @@ cat("Using", n_pcs_use, "PCs (", round(cum_var[n_pcs_use] * 100, 1), "% variance
 
 ```{r Neighbors and clusters}
 
-SeO_CART_norm <- FindNeighbors(SeO_CART_norm, dims = 1:num_pcs)
+Seurat_norm <- FindNeighbors(Seurat_norm, dims = 1:num_pcs)
 
-SeO_CART_norm <- FindClusters(SeO_CART_norm, 
+Seurat_norm <- FindClusters(Seurat_norm, 
                               resolution = c(0.25, 0.5, 0.75, 1.0))
 
-Idents(SeO_CART_norm) <- "RNA_snn_res.0.5"
+Idents(Seurat_norm) <- "RNA_snn_res.0.5"
 
 ```
 
 ```{r UMAP prep}
 
-SeO_CART_norm <- RunUMAP(SeO_CART_norm, dims = 1:num_pcs)
+Seurat_norm <- RunUMAP(Seurat_norm, dims = 1:num_pcs)
 
-DimPlot(SeO_CART_norm, reduction = "umap", group.by = "fov")
+DimPlot(Seurat_norm, reduction = "umap", group.by = "fov")
 
 ```
 
 
 ```{r Save the normalised seurat object with PCAs and UMAPs}
 
-# SaveSeuratRds(object = SeO_CART_norm, file = "../Data/Edited_data/Seurat_normalised.Rds")
+SaveSeuratRds(object = Seurat_norm, file = file.path(main_dir, "Data", "Edited_data", "Seurat_normalised.Rds"))
 
 ```
