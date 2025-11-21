@@ -34,15 +34,15 @@ library(Seurat)
 library(SeuratObject)
 library(Matrix)
 library(harmony)
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+Init_project("~/P_lab/Spatial_CART/")
 
 ```
 
 ```{r Load the filtered seurat object}
 
-qc_dir <- "~/P_lab/Spatial_CART/"
-
 ## Change this one you have finalised a merged object ##
-Seurat_obj <- readRDS(file = paste0(qc_dir, "Data/Edited_data/Seurat_Slides_12_Crosslee.Rds"))
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_normalised.Rds"))
 
 Seurat_obj@meta.data <- Seurat_obj@meta.data %>% 
   mutate(Slide_num = str_extract(Run_Tissue_name, "(?<=Slide)\\d+"), 
@@ -84,17 +84,17 @@ Umap_pre_harmony
 PCA_pre_harmony
 Vln_pre_harmony
 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/UMAP_pre_batch_per_slide.png"),
-#        plot = Umap_pre_harmony, width = 6, height = 4, dpi = 300)
-# 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/PCA_pre_batch_per_slide.png"),
-#        plot = PCA_pre_harmony, width = 6, height = 4, dpi = 300)
-# 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/Vln_pre_batch_per_slide.png"),
-#        plot = Vln_pre_harmony, width = 12, height = 10, dpi = 300)
-# 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/UMAP_pre_batch_per_celltype.png"),
-#        plot = Umap_pre_harmony_cell_types, width = 16, height = 8, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_pre_batch_per_slide.png"),
+       plot = Umap_pre_harmony, width = 6, height = 4, dpi = 300)
+
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/PCA_pre_batch_per_slide.png"),
+       plot = PCA_pre_harmony, width = 6, height = 4, dpi = 300)
+
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/Vln_pre_batch_per_slide.png"),
+       plot = Vln_pre_harmony, width = 12, height = 10, dpi = 300)
+
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_pre_batch_per_celltype.png"),
+       plot = Umap_pre_harmony_cell_types, width = 16, height = 8, dpi = 300)
 
 ```
 
@@ -136,8 +136,8 @@ R2s_barplot_pre_batch <- ggplot(r2s_pre_harmony_df, aes(x = PC, y = R2)) +
        x = "Principal component", y = expression("Adjusted" ~ R^2)) +
   theme_bw() 
 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/R2s_barplot_pre_batch.png"),
-#        plot = R2s_barplot_pre_batch, width = 16, height = 8, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/R2s_barplot_pre_batch.png"),
+       plot = R2s_barplot_pre_batch, width = 16, height = 8, dpi = 300)
 
 ```
 
@@ -162,11 +162,11 @@ Umap_post_harmony_per_cluster <- DimPlot(Seurat_obj, group.by = "seurat_clusters
 Umap_post_harmony_per_slide
 Umap_post_harmony_per_cluster
 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_slide.png"),
-#        plot = Umap_post_harmony_per_slide, width = 6, height = 4, dpi = 300)
-# 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_cluster.png"),
-#        plot = Umap_post_harmony_per_cluster, width = 6, height = 4, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_slide.png"),
+       plot = Umap_post_harmony_per_slide, width = 6, height = 4, dpi = 300)
+
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_cluster.png"),
+       plot = Umap_post_harmony_per_cluster, width = 6, height = 4, dpi = 300)
 
 ```
 
@@ -212,29 +212,17 @@ R2s_barplot_post_batch <- ggplot(r2s_post_harmony_df, aes(x = PC, y = R2)) +
 Umap_celltypes_post_har <- DimPlot(Seurat_obj, reduction = "umap", 
                                    group.by = "RNA_Export_Cell.Typing.InSituType.1_1_clusters")
 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_post_Batch/R2s_barplot_post_batch.png"),
-#        plot = R2s_barplot_post_batch, width = 16, height = 8, dpi = 300)
-# 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_post_Batch/Umap_celltypes_post_harmony.png"),
-#        plot = Umap_celltypes_post_har, width = 12, height = 8, dpi = 300)
+R2s_barplot_post_batch
+Umap_celltypes_post_har
+
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/R2s_barplot_post_batch.png"),
+       plot = R2s_barplot_post_batch, width = 16, height = 8, dpi = 300)
+
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/Umap_celltypes_post_harmony.png"),
+       plot = Umap_celltypes_post_har, width = 12, height = 8, dpi = 300)
 
 ```
  
-```{r Separate the objects}
-
-# Seurat_obj_CART <- subset(Seurat_obj, subset = Run_Tissue_name == "MCF-ASCIST-1250-Slide1 (1979 8769 6063 4322)")
-# Seurat_obj_CTRL <- subset(Seurat_obj, subset = Run_Tissue_name == "MCF-ASCIST-1250-Slide2 (1281)")
-
-```
-
-```{r See the differences}
-
-# DimPlot(Seurat_obj_CART, reduction = "umap", group.by = "Run_Tissue_name")
-# DimPlot(Seurat_obj_CTRL, reduction = "umap", group.by = "Run_Tissue_name")
-
-```
-
-
 ```{r Get the cell proportions per cluster}
 
 tab_celltypes <- table(Seurat_obj$seurat_clusters, Seurat_obj$RNA_Export_Cell.Typing.InSituType.1_1_clusters)
@@ -257,17 +245,16 @@ Celltype_fqs_post_batch <- ggplot(df_celltype_fqs, aes(x = Cluster, y = Freq, fi
 tab_slide_major <- table(Seurat_obj$RNA_Export_Cell.Typing.InSituType.1_1_clusters, Seurat_obj$Slide)
 round(prop.table(tab_slide_major, margin = 1), 2)
 
-# ggsave(filename = file.path(qc_dir, "Results/After_Normalisation_post_Batch/Celltype_fqs_post_batch.png"),
-#        plot = Celltype_fqs_post_batch, width = 16, height = 8, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/Celltype_fqs_post_batch.png"),
+       plot = Celltype_fqs_post_batch, width = 16, height = 8, dpi = 300)
 
-SaveSeuratRds(object = Seurat_obj, file = "../Data/Edited_data/Seurat_obj_after_batch.Rds")
+SaveSeuratRds(object = Seurat_obj, file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
 
 ```
 
 ```{r Reload the batch corrected object}
 
-qc_dir <- "~/P_lab/Spatial_CART/"
-Seurat_obj <- readRDS(file = paste0(qc_dir, "Data/Edited_data/Seurat_obj_after_batch.Rds"))
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_obj_after_batch.Rds"))
 
 ```
 
@@ -286,7 +273,7 @@ top20_major <- markers_major %>%
   group_by(cluster) %>% 
   top_n(20, wt = avg_log2FC)
 
-# write_csv(x = top20_major, file = paste0(qc_dir, "Results/Tables/Top_20_Markers_after_batch_per_cluster.csv"))
-# write_csv(x = markers_major, file = paste0(qc_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
+write_csv(x = top20_major, file = file.path(main_dir, "Results/Tables/Top_20_Markers_after_batch_per_cluster.csv"))
+write_csv(x = markers_major, file = file.path(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
 
 ```
