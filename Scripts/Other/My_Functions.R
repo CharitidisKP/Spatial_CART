@@ -1,3 +1,42 @@
+## Function to load paths and report variables ##
+Init_project <- function(main_dir) {
+  ## Normalize path ##
+  main_dir <- normalizePath(main_dir, mustWork = FALSE)
+  
+  ## Build paths ##
+  log_file <- file.path(main_dir, "Results", "Reports", "preprocess_log.txt")
+  qc_dir <- file.path(main_dir, "Results", "QC_Images")
+  metrics_path <- file.path(main_dir, "Results", "Reports", "preprocess_metrics.csv")
+  
+  ## Set knitr root if knitr is loaded ##
+  if (requireNamespace("knitr", quietly = TRUE)) {
+    knitr::opts_knit$set(root.dir = main_dir)
+  }
+  
+  ## Load or create metrics ##
+  if (file.exists(metrics_path)) {
+    metrics <- readr::read_csv(metrics_path, show_col_types = FALSE)
+  } else {
+    metrics <- tibble::tibble(
+      time = as.POSIXct(character()),
+      step = character(),
+      cells = numeric(),
+      genes = numeric(),
+      note = character())
+  }
+  
+  ## Put objects in the global environment ##
+  assign("main_dir", main_dir, envir = .GlobalEnv)
+  assign("log_file", log_file, envir = .GlobalEnv)
+  assign("qc_dir", qc_dir, envir = .GlobalEnv)
+  assign("metrics", metrics, envir = .GlobalEnv)
+  
+  invisible(list(main_dir = main_dir,
+                 log_file = log_file,
+                 qc_dir = qc_dir,
+                 metrics = metrics))
+}
+
 ## Report for the analysis steps ##
 log_info <- function(note, fmt, ...) {
   ts <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
