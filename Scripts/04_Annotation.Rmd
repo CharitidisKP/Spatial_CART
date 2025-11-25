@@ -104,12 +104,6 @@ if (!file.exists(insitutypefileloc)) {
 
 ```
 
-```{r Provide the preexisting annotations as identities}
-
-Idents(Seurat_obj) <- "RNA_Export_Cell.Typing.InSituType.1_1_clusters"
-
-```
-
 ```{r Create the sample id column}
 
 Sample_meta <- Seurat_obj@meta.data %>% 
@@ -143,5 +137,28 @@ Seurat_obj@meta.data <- Sample_meta
 ```{r Load CSVs with the markers}
 
 Markers <- read_csv(file = paste0(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
+
+```
+
+```{r Load the annotation data}
+
+## Alternative if you have multiple annotation files from InSituType is a for loop ##
+Annotation_6k_KRCC <- readRDS(file.path(main_dir, "/Data/Annotations/Annotation_6k_Kidney_RCC.Rds"))
+
+```
+
+```{r Flightpath using the annotation list}
+
+Flightpath_6k_KRCC <- InSituType::flightpath_layout(logliks = Annotation_6k_KRCC$logliks, 
+                                                    profiles = Annotation_6k_KRCC$profiles)
+
+```
+
+```{r Visualise the annotation and save the figure}
+
+Flightpath_6k_KRCC_plot <- plot_flightpath_leg(Flightpath_6k_KRCC)
+
+ggsave(plot = Flightpath_6k_KRCC_plot, filename = file.path(main_dir, "Results/After_Annotation/Flightpath_6k_KRCC.png"), 
+       width = 12, height = 8, dpi = 300)
 
 ```
