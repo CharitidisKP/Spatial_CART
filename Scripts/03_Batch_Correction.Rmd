@@ -209,8 +209,12 @@ R2s_barplot_post_batch <- ggplot(r2s_post_harmony_df, aes(x = PC, y = R2)) +
        x = "Principal component", y = expression("Adjusted" ~ R^2)) +
   theme_bw() 
 
-Umap_celltypes_post_har <- DimPlot(Seurat_obj, reduction = "umap", 
-                                   group.by = "RNA_Export_Cell.Typing.InSituType.1_1_clusters")
+Umap_celltypes_post_har <- DimPlot(Seurat_obj, 
+                                   reduction = "umap", 
+                                   label = TRUE, 
+                                   repel = TRUE, 
+                                   group.by = "RNA_Export_Cell.Typing.InSituType.1_1_clusters") +
+  ggtitle("UMAP after batch correction by InSituType clusters")
 
 R2s_barplot_post_batch
 Umap_celltypes_post_har
@@ -219,7 +223,7 @@ ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/R2
        plot = R2s_barplot_post_batch, width = 16, height = 8, dpi = 300)
 
 ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/Umap_celltypes_post_harmony.png"),
-       plot = Umap_celltypes_post_har, width = 12, height = 8, dpi = 300)
+       plot = Umap_celltypes_post_har, width = 16, height = 8, dpi = 300)
 
 ```
  

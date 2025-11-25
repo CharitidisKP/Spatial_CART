@@ -34,19 +34,73 @@ library(Seurat)
 library(SeuratObject)
 library(Matrix)
 library(InSituType)
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+Init_project("~/P_lab/Spatial_CART/")
 
 ```
 
 ```{r Load the batch corrected seurat oject}
 
-main_dir <- "~/P_lab/Spatial_CART/"
-Seurat_obj <- readRDS(file = paste0(main_dir, "Data/Edited_data/Seurat_obj_after_batch.Rds"))
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
 
 ```
 
-```{r Load CSVs with the markers}
+```{r Load the reference from nanostring - 6K panel KidneyRCC}
 
-Markers <- read_csv(file = paste0(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
+## Load the reference matrix from github ##
+Ref_mat <- read.csv("https://raw.githubusercontent.com/Nanostring-Biostats/CosMx-Cell-Profiles/main/Human/KidneyRCC_6k/KidneyRCC_6k.profiles.csv", 
+                    row.names = 1, header = TRUE)
+
+Counts <- GetAssayData(Seurat_obj, assay = "RNA", layer = "counts")
+Neg_probs <- GetAssayData(Seurat_obj, assay = "negprobes", layer = "counts")
+
+## Get the common cells between our seurat object counts and the reference ##
+My_genes <- Counts %>% 
+  rownames()
+
+Ref_genes <- rownames(Ref_mat)
+
+Common_genes <- intersect(x = My_genes, y = Ref_genes)
+Common_genes <- sort(Common_genes)
+
+## Filter the reference based on the common panel ##
+Counts_sub <- Counts[Common_genes, ]
+Ref_mat_sub <- Ref_mat[Common_genes, ]
+
+## Make sure counts are in the correct format ##
+# Counts_sub <- as(Counts_sub, "dgCMatrix")
+
+## Build a per cell negative vector ##
+Cell_IDs <- colnames(Counts_sub)
+
+Counts_sub <- Matrix::t(Counts_sub)
+Neg_probs <- Matrix::t(Neg_probs)
+
+stopifnot(identical(rownames(Counts_sub), rownames(Neg_probs)))
+
+## Visualise for sanity ##
+pheatmap::pheatmap(sweep(Ref_mat_sub, 1, pmax(apply(Ref_mat_sub, 1, max), 0.2), "/"), 
+                   col = colorRampPalette(c("white", "darkblue"))(100))
+
+```
+
+```{r}
+
+insitutypefileloc <- file.path(main_dir, "/Data/Edited_data/Annotation_6k_Kidney_RCC.Rds")
+if (!file.exists(insitutypefileloc)) {
+
+  set.seed(1511)
+  res <- InSituType::insitutype(x = Counts_sub,
+                                neg = Matrix::rowMeans(Neg_probs),
+                                reference_profiles = Ref_mat_sub,
+                                update_reference_profiles = FALSE,
+                                n_clust = 6)
+
+  saveRDS(res, file = insitutypefileloc)
+
+} else {
+  res <- readRDS(insitutypefileloc)
+}
 
 ```
 
@@ -73,48 +127,21 @@ Seurat_obj@meta.data <- Sample_meta
 ```{r Lets get a look at the FOVs before the anotation}
 
   Seurat_obj@meta.data %>%
-  select(fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm) %>% 
+  select(fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, Slide_num) %>% 
   transform(., x_px = x_slide_mm * 0.18,
             y_px = y_slide_mm * 0.18) %>% 
-  ggplot(., aes(x = x_px, y = y_px, colour = factor(fov))) +
+  ggplot(., aes(x = x_px, y = y_px)) +
   geom_point(size = 0.1, alpha = 0.6) +
   coord_equal() +
+  facet_wrap(~ Slide_num) +
   theme_void() +
   guides(colour = guide_legend(override.aes = list(size = 2))) +
   labs(colour = "FOV", title = "Cells coloured by FOV")
 
 ```
 
-```{r Load the reference from nanostring - 6K panel KidneyRCC}
+```{r Load CSVs with the markers}
 
-## Load the reference matrix from github ##
-Ref_mat <- read.csv("https://raw.githubusercontent.com/Nanostring-Biostats/CosMx-Cell-Profiles/main/Human/KidneyRCC_6k/KidneyRCC_6k.profiles.csv", 
-                    row.names = 1, header = TRUE)
-
-## Get the common cells between our seurat object counts and the reference ##
-Ref_genes <- rownames(Ref_mat)
-
-My_genes <- GetAssayData(Seurat_obj, layer = "counts") %>% 
-  rownames()
-
-Common_genes <- intersect(x = My_genes, y = Ref_genes)
-
-## Filter the reference based on the common panel ##
-Ref_mat_2 <- Ref_mat[is.element(rownames(Ref_mat), Common_genes), ]
-
-## Visualise for sanity ##
-pheatmap::pheatmap(sweep(Ref_mat_2, 1, pmax(apply(Ref_mat_2, 1, max), 0.2), "/"), 
-                   col = colorRampPalette(c("white", "darkblue"))(100))
+Markers <- read_csv(file = paste0(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
 
 ```
-
-```{r}
-
-InSituType::insitutype(x = )
-GetAssayData(assay = "RNA", layer = "counts")
-
-
-
-
-```
-
