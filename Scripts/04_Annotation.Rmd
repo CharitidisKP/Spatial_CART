@@ -34,7 +34,9 @@ library(Seurat)
 library(SeuratObject)
 library(Matrix)
 library(InSituType)
+library(pheatmap)
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/CondenseXY.R")
 Init_project("~/P_lab/Spatial_CART/")
 
 ```
@@ -162,3 +164,97 @@ ggsave(plot = Flightpath_6k_KRCC_plot, filename = file.path(main_dir, "Results/A
        width = 12, height = 8, dpi = 300)
 
 ```
+
+```{r Pheatmap of the first annotation step}
+
+Pheatmap_6k_KRCC <- pheatmap(Scale_rows_pheatmap(Annotation_6k_KRCC$profiles),
+                             fontsize_row = 4, 
+                             col = colorRampPalette(c("white", "darkblue"))(100))
+
+```
+
+```{r Spatial spread per cluster plots}
+
+XY <- Sample_meta %>% 
+  select(cell_ID, fov, x_FOV_px, y_FOV_px, Slide, Sample) 
+
+fov_vec <- XY$fov
+tissue_vec <- factor(paste(XY$Slide, XY$Sample, sep = "_"))
+
+XY <- XY %>% 
+  select(x_FOV_px, y_FOV_px) %>% 
+  transmute(x = x_FOV_px,
+            y = y_FOV_px) %>%
+  as.matrix()
+
+# idx_sub <- sample(seq_len(nrow(XY_2)), 3000)
+
+xy_cond <- condenseXY(
+  xy = XY,
+  fov = fov_vec,
+  tissue = tissue_vec,
+  condensefovs = TRUE,
+  condensetissues = TRUE,
+  eps = 1.5,
+  mindist = 0.1,
+  fovbuffer = 0.2,
+  tissueorder = NULL,
+  tissuebuffer = 0.2,
+  widthheightratio = 4/3
+)
+
+# Build a tibble with coords + cluster labels
+cells_df <- as_tibble(xy_cond, .name_repair = "minimal") %>% 
+  setNames(c("x", "y")) %>% 
+  mutate(Cluster = factor(Annotation_6k_KRCC$clust)[idx_sub])
+
+# Precompute ranges for consistent sizing
+x_range <- diff(range(cells_df$x, na.rm = TRUE))
+y_range <- diff(range(cells_df$y, na.rm = TRUE))
+
+
+
+cols <- setNames(RColorBrewer::brewer.pal(n = nlevels(cells_df$Cluster), "Set3"),
+                 levels(cells_df$Cluster))
+
+out_dir <- file.path(main_dir, "Results/After_Annotation/Celltypes_vol_1/6K_KRCC")
+
+for (cl in levels(cells_df$Cluster)) {
+  
+  p <- ggplot(cells_df, aes(x = x, y = y)) +
+    geom_point(aes(colour = Cluster), alpha = 0.5, size = 0.1, show.legend = FALSE) +
+    geom_point(data = filter(cells_df, Cluster == cl),
+               colour = "black", size = 0.1) +
+    coord_equal() +
+    theme_void() +
+    ggtitle(cl)
+    # + scale_colour_manual(values = cols)  # if you want fixed colours
+  
+  ggsave(
+    filename = file.path(out_dir, paste0("Cell_type_", cl, ".png")),
+    plot     = p,
+    # width    = x_range * 0.7,
+    # height   = y_range * 0.7,
+    units    = "in",
+    dpi      = 400
+  )
+}
+```
+
+```{r}
+
+xy_cond_df <- xy_cond %>% 
+  as.data.frame() %>% 
+  rownames_to_column(var = "cell_ID")
+
+XY[idx_sub, ] %>% 
+  select(cell_ID, fov, Slide, Sample) %>% 
+  mutate(Slide_Sample = factor(paste(Slide, Sample, sep = "_"))) %>% 
+  inner_join(xy_cond_df, by = "cell_ID") %>% 
+  ggplot(., aes(x = x, y = y)) +
+    geom_point(aes(colour = Slide_Sample), alpha = 0.5, size = 0.1) +
+    coord_equal() +
+    theme_void() 
+
+```
+

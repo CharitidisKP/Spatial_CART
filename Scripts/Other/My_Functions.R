@@ -228,3 +228,11 @@ plot_flightpath_leg <- function(flightpath_obj,
     theme(legend.position = "right", 
           plot.margin = margin(0, 0, 0, 0)) 
 }
+
+## Helper for the pheatmap visualisations ##
+## Scales matrix expression rows and drops genes who dont meet the threshold ##
+Scale_rows_pheatmap <- function(mat, min_max = 0.2, min_keep = 0.2) {
+  row_max <- matrixStats::rowMaxs(mat)
+  scaled <- mat / pmax(row_max, min_max)
+  scaled[row_max > min_keep, , drop = FALSE]
+}
