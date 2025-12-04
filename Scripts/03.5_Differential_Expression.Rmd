@@ -1,0 +1,204 @@
+---
+title: "Differential expression and marker identification"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r Setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+```{r Libraries, include = FALSE}
+
+library(tidyverse)
+library(Seurat)
+library(SeuratObject)
+library(Matrix)
+library(RColorBrewer)
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+Init_project("~/P_lab/Spatial_CART/")
+
+```
+
+```{r Load the batch corrected seurat oject}
+
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
+
+```
+
+```{r}
+
+top10 <- head(VariableFeatures(Seurat_obj), 10)
+plot1 <- VariableFeaturePlot(Seurat_obj)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+
+```
+
+```{r}
+
+print(Seurat_obj[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(Seurat_obj, dims = 1:2, reduction = "pca")
+DimPlot(Seurat_obj, reduction = "pca")
+DimHeatmap(Seurat_obj, dims = 1:15, cells = 1500, balanced = TRUE)
+ElbowPlot(Seurat_obj)
+
+```
+
+```{r Compute DE markers per cluster}
+
+markers <- FindAllMarkers(Seurat_obj,
+                          assay = "RNA",
+                          only.pos = TRUE, 
+                          min.pct = 0.05, ## gene expressed in >= 5% of cells 
+                          logfc.threshold = 0.5,
+                          test.use = "wilcox")
+
+```
+
+```{r Markers by cluster}
+
+markers_top10 <- markers %>% 
+  group_by(cluster) %>% 
+  slice_max(n = 10, order_by = avg_log2FC)
+
+markers_top10
+
+```
+
+```{r Reference markers from this publication: https://pmc.ncbi.nlm.nih.gov/articles/PMC9233501/}
+
+## This is incomplete, fill it out ##
+ref_markers <- tibble(
+  cell_type = c("Proximal_tubule", "Loop_of_Henle", "Distal_tubule", "Collecting_duct", 
+                "Endothelial", "Fibroblast", "Macrophage", "T_cell", "B_cell"),
+  markers = list(c("SLC5A2","SLC34A1","LRP2"), # proximal tubule
+                 c("UMOD","SLC12A1","CYP17A1"), # loop of Henle (example genes)
+                 c("SLC12A3","CLCNKA","CLCNKB"), # distal tubule
+                 c("AQP2","SCNN1G","ATP6V0D2"), # collecting duct
+                 c("PECAM1","VWF","EMCN"), # endothelial
+                 c("DCN","COL1A2","PDGFRA"), # fibroblast / interstitial
+                 c("C1QA","C1QB","C1QC","LYZ"), # macrophage / monocyte
+                 c("CD3D","CD3E","CD8A","CD4"), # T cells
+                 c("MS4A1","CD79A","CD74") # B cells
+  ))
+
+```
+
+```{r}
+
+Sign_Markers <- markers %>% 
+  filter(p_val_adj < 0.05)
+
+overlap_df <- expand_grid(Cluster = unique(Sign_Markers$cluster), 
+                          Cell_type = ref_markers$cell_type) %>% 
+  mutate(Ref_set = map(Cell_type, ~ref_markers$markers[[which(ref_markers$cell_type == .x)]])) %>% 
+  rowwise() %>% 
+  mutate(Overlap = sum(Sign_Markers$gene[Sign_Markers$cluster == Cluster] %in% Ref_set),
+         n_ref = length(Ref_set),
+         n_cluster = sum(Sign_Markers$cluster == Cluster),
+         prop = Overlap / n_ref) %>%
+  ungroup()
+
+overlap_df %>% 
+  filter(prop > 0) %>% 
+  arrange(Cluster, desc(prop))
+
+```
+
+```{r Vasculature Markers}
+
+Endothilial <- c("NRP1", "CDH5", "ELN")
+Glomerular_Endothilium <- c("PLAT", "EMCN", "TSAPN7", "MAPT", 
+                            "KDR", "SMAD6", "EHD3", "LPL", "FLT1", 
+                            "FBLN2", "MGP", "TRPV4", "BMX")
+Capillaries <- c("KDR", "SMAD6", "EHD3", "LPL", "FLT1")
+Arterioles <- c("FBLN2", "MGP", "TRPV4", "BMX",
+                "SOX17", "CXCL12", "GJA5")
+Vas_afferens <- c("EDN1", "FBLN5", "CLDN5", "EFNB2")
+Vas_efferens <- c("KLF4", "CRYAB", "GAS6", "PODX")
+Peritubular_capillaries <- c("PLVAP")
+Venules <- c("PIVAP", "BGN", "CD9", "NR2F2")
+Ascending_vasa_recta <- c("FXYD2", "FXYD6", "IGFOP7")
+Descending_vasa_recta <- c("SIC14A1", "AQP1", "S100A4")
+
+Vasc_markers_list <- list(Endothilial = Endothilial, 
+                          Glomerular_Endothilium = Glomerular_Endothilium, 
+                          Capillaries = Capillaries, 
+                          Arterioles = Arterioles, 
+                          Vas_afferens = Vas_afferens, 
+                          Vas_efferens = Vas_efferens, 
+                          Peritubular_capillaries = Peritubular_capillaries, 
+                          Venules = Venules, 
+                          Ascending_vasa_recta = Ascending_vasa_recta, 
+                          Descending_vasa_recta = Descending_vasa_recta)
+
+Vasc_markers_df <- enframe(Vasc_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Vasculature", .before = Subtype)
+
+```
+
+```{r Proximal tubule Markers}
+
+PT <- c("LRP2", "CUBN", "SLC5A2", "SLC34A1", "ALDOB", 
+        "SLC22A6", "SLC22A8", "DNASE1L3", "HAVCR1")
+
+
+TAL <- c("UMOD", "SLC12A1", "KCNJ1", "CLCNKB", "CASR")
+DCT <- c("SLC12A3", "PVALB", "TRPM6", "KCNJ10")
+CNT <- c("SLC8A1", "CALB1", "S100G")
+CD_Principal <- c("AQP2", "AQP3", "AQP4", "SCNN1A", "SCNN1B", "SCNN1G")
+CD_Intercalated_A <- c("ATP6V1B1", "ATP6V0D2", "SLC4A1")
+CD_Intercalated_B <- c("SLC26A4", "KRT7", "FOXI1")
+
+Tubular_markers_list <- list(
+  PT_S1_S2 = PT_S1_S2,
+  PT_S3 = PT_S3,
+  TAL = TAL,
+  DCT = DCT,
+  CNT = CNT,
+  CD_Principal = CD_Principal,
+  CD_Intercalated_A = CD_Intercalated_A,
+  CD_Intercalated_B = CD_Intercalated_B)
+
+Tubular_markers_df <- enframe(Tubular_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Tubular", .before = Subtype)
+
+```
+
+
+
+
+```{r}
+
+Panel <- Features(Seurat_obj)
+
+intersect(Vasc_markers_df$Gene, Panel)
+
+tibble(Gene = Vasc_markers_df$Gene,
+       Gene_in_Panel = Gene %in% Panel)
+
+
+```
+

@@ -35,6 +35,9 @@ library(SeuratObject)
 library(Matrix)
 library(InSituType)
 library(pheatmap)
+library(RColorBrewer)
+library(SpatialDecon)
+library(ggrepel)
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/CondenseXY.R")
 Init_project("~/P_lab/Spatial_CART/")
@@ -47,214 +50,199 @@ Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_
 
 ```
 
-```{r Load the reference from nanostring - 6K panel KidneyRCC}
+```{r CSV file with the reference datasets and the tags}
 
-## Load the reference matrix from github ##
-Ref_mat <- read.csv("https://raw.githubusercontent.com/Nanostring-Biostats/CosMx-Cell-Profiles/main/Human/KidneyRCC_6k/KidneyRCC_6k.profiles.csv", 
-                    row.names = 1, header = TRUE)
+ref_panels <- tibble::tribble( ~ref_tag,        ~ref_csv,
+                               "6K_Kidney_RCC", "https://raw.githubusercontent.com/Nanostring-Biostats/CosMx-Cell-Profiles/main/Human/KidneyRCC_6k/KidneyRCC_6k.profiles.csv",
+                               "1K_Kidney",     "https://raw.githubusercontent.com/Nanostring-Biostats/CosMx-Cell-Profiles/main/Human/Kidney_1k/Kidney_1k.profiles.csv")
 
-Counts <- GetAssayData(Seurat_obj, assay = "RNA", layer = "counts")
-Neg_probs <- GetAssayData(Seurat_obj, assay = "negprobes", layer = "counts")
-
-## Get the common cells between our seurat object counts and the reference ##
-My_genes <- Counts %>% 
-  rownames()
-
-Ref_genes <- rownames(Ref_mat)
-
-Common_genes <- intersect(x = My_genes, y = Ref_genes)
-Common_genes <- sort(Common_genes)
-
-## Filter the reference based on the common panel ##
-Counts_sub <- Counts[Common_genes, ]
-Ref_mat_sub <- Ref_mat[Common_genes, ]
-
-## Make sure counts are in the correct format ##
-# Counts_sub <- as(Counts_sub, "dgCMatrix")
-
-## Build a per cell negative vector ##
-Cell_IDs <- colnames(Counts_sub)
-
-Counts_sub <- Matrix::t(Counts_sub)
-Neg_probs <- Matrix::t(Neg_probs)
-
-stopifnot(identical(rownames(Counts_sub), rownames(Neg_probs)))
-
-## Visualise for sanity ##
-pheatmap::pheatmap(sweep(Ref_mat_sub, 1, pmax(apply(Ref_mat_sub, 1, max), 0.2), "/"), 
-                   col = colorRampPalette(c("white", "darkblue"))(100))
-
-```
-
-```{r}
-
-insitutypefileloc <- file.path(main_dir, "/Data/Edited_data/Annotation_6k_Kidney_RCC.Rds")
-if (!file.exists(insitutypefileloc)) {
-
-  set.seed(1511)
-  res <- InSituType::insitutype(x = Counts_sub,
-                                neg = Matrix::rowMeans(Neg_probs),
-                                reference_profiles = Ref_mat_sub,
-                                update_reference_profiles = FALSE,
-                                n_clust = 6)
-
-  saveRDS(res, file = insitutypefileloc)
-
-} else {
-  res <- readRDS(insitutypefileloc)
-}
-
-```
-
-```{r Create the sample id column}
-
-Sample_meta <- Seurat_obj@meta.data %>% 
-  mutate(Slide_num = as.integer(Slide_num), 
-  Sample = case_when(Slide_num == 1 & fov >=  1 & fov <= 28 ~ 4,
-                     Slide_num == 1 & fov >= 29 & fov <= 41 ~ 3,
-                     Slide_num == 1 & fov >= 42 & fov <= 54 ~ 2,
-                     Slide_num == 1 & fov >= 55 & fov <= 71 ~ 1,
-                     Slide_num == 2 ~ 5, TRUE ~ NA)) 
-
-Seurat_obj@meta.data <- Sample_meta
-
-```
-
-```{r Lets get a look at the FOVs before the anotation}
-
-  Seurat_obj@meta.data %>%
-  select(fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, Slide_num) %>% 
-  transform(., x_px = x_slide_mm * 0.18,
-            y_px = y_slide_mm * 0.18) %>% 
-  ggplot(., aes(x = x_px, y = y_px)) +
-  geom_point(size = 0.1, alpha = 0.6) +
-  coord_equal() +
-  facet_wrap(~ Slide_num) +
-  theme_void() +
-  guides(colour = guide_legend(override.aes = list(size = 2))) +
-  labs(colour = "FOV", title = "Cells coloured by FOV")
-
-```
-
-```{r Load CSVs with the markers}
-
-Markers <- read_csv(file = paste0(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
-
-```
-
-```{r Load the annotation data}
-
-## Alternative if you have multiple annotation files from InSituType is a for loop ##
-Annotation_6k_KRCC <- readRDS(file.path(main_dir, "/Data/Annotations/Annotation_6k_Kidney_RCC.Rds"))
-
-```
-
-```{r Flightpath using the annotation list}
-
-Flightpath_6k_KRCC <- InSituType::flightpath_layout(logliks = Annotation_6k_KRCC$logliks, 
-                                                    profiles = Annotation_6k_KRCC$profiles)
-
-```
-
-```{r Visualise the annotation and save the figure}
-
-Flightpath_6k_KRCC_plot <- plot_flightpath_leg(Flightpath_6k_KRCC)
-
-ggsave(plot = Flightpath_6k_KRCC_plot, filename = file.path(main_dir, "Results/After_Annotation/Flightpath_6k_KRCC.png"), 
-       width = 12, height = 8, dpi = 300)
-
-```
-
-```{r Pheatmap of the first annotation step}
-
-Pheatmap_6k_KRCC <- pheatmap(Scale_rows_pheatmap(Annotation_6k_KRCC$profiles),
-                             fontsize_row = 4, 
-                             col = colorRampPalette(c("white", "darkblue"))(100))
+write_csv(ref_panels, file.path(main_dir, "Data/Annotation_References/Reference_Panels.csv"))
 
 ```
 
 ```{r Spatial spread per cluster plots}
 
-XY <- Sample_meta %>% 
-  select(cell_ID, fov, x_FOV_px, y_FOV_px, Slide, Sample) 
-
-fov_vec <- XY$fov
-tissue_vec <- factor(paste(XY$Slide, XY$Sample, sep = "_"))
-
-XY <- XY %>% 
-  select(x_FOV_px, y_FOV_px) %>% 
-  transmute(x = x_FOV_px,
-            y = y_FOV_px) %>%
-  as.matrix()
-
-# idx_sub <- sample(seq_len(nrow(XY_2)), 3000)
-
-xy_cond <- condenseXY(
-  xy = XY,
-  fov = fov_vec,
-  tissue = tissue_vec,
-  condensefovs = TRUE,
-  condensetissues = TRUE,
-  eps = 1.5,
-  mindist = 0.1,
-  fovbuffer = 0.2,
-  tissueorder = NULL,
-  tissuebuffer = 0.2,
-  widthheightratio = 4/3
-)
-
-# Build a tibble with coords + cluster labels
-cells_df <- as_tibble(xy_cond, .name_repair = "minimal") %>% 
-  setNames(c("x", "y")) %>% 
-  mutate(Cluster = factor(Annotation_6k_KRCC$clust)[idx_sub])
-
-# Precompute ranges for consistent sizing
-x_range <- diff(range(cells_df$x, na.rm = TRUE))
-y_range <- diff(range(cells_df$y, na.rm = TRUE))
-
-
-
-cols <- setNames(RColorBrewer::brewer.pal(n = nlevels(cells_df$Cluster), "Set3"),
-                 levels(cells_df$Cluster))
+colorRampPalette(brewer.pal(12, "Set3")) (nlevels(Sample_meta$C_types_6k_KRCC))
+cols <- colorRampPalette(brewer.pal(12, "Set3")) (nlevels(Sample_meta$C_types_6k_KRCC)) 
+names(cols) <- levels(Sample_meta$C_types_6k_KRCC)
 
 out_dir <- file.path(main_dir, "Results/After_Annotation/Celltypes_vol_1/6K_KRCC")
 
-for (cl in levels(cells_df$Cluster)) {
+for (cl in levels(Sample_meta$C_types_6k_KRCC)) {
   
-  p <- ggplot(cells_df, aes(x = x, y = y)) +
-    geom_point(aes(colour = Cluster), alpha = 0.5, size = 0.1, show.legend = FALSE) +
-    geom_point(data = filter(cells_df, Cluster == cl),
+  p <- ggplot(Sample_meta, aes(x = x_cond, y = y_cond)) +
+    geom_point(aes(colour = C_types_6k_KRCC), alpha = 0.5, size = 0.1, show.legend = FALSE) +
+    geom_point(data = filter(Sample_meta, C_types_6k_KRCC == cl),
                colour = "black", size = 0.1) +
     coord_equal() +
     theme_void() +
-    ggtitle(cl)
-    # + scale_colour_manual(values = cols)  # if you want fixed colours
+    # facet_wrap(~Slide) +
+    ggtitle(cl) + scale_colour_manual(values = cols)  # if you want fixed colours
   
-  ggsave(
-    filename = file.path(out_dir, paste0("Cell_type_", cl, ".png")),
-    plot     = p,
-    # width    = x_range * 0.7,
-    # height   = y_range * 0.7,
-    units    = "in",
-    dpi      = 400
-  )
+  ggsave(filename = file.path(out_dir, paste0("Cell_type_", cl, ".png")),
+         plot = p, units = "in", dpi = 400)
 }
+
+```
+
+```{r Test the Run_insitutype_panel function}
+
+res_6K_Kidney_RCC_3clusters <- Run_insitutype_panel(Seurat_obj = Seurat_obj,
+                               ref_csv = ref_panels$ref_csv[1],
+                               ref_tag = "6K_Kidney_RCC_3clusters",
+                               n_clust = 3,
+                               refine = TRUE, 
+                               auto_delete_letters = FALSE, 
+                               to_delete = c("a", "b"))
+
+```
+
+```{r Prep for InSituType}
+
+Counts <- GetAssayData(Seurat_obj, assay = "RNA", layer = "counts") %>% 
+  t()
+
+Neg_probs <- GetAssayData(Seurat_obj, assay = "negprobes", layer = "counts") %>% 
+  t()
+
+IF_Markers <- Seurat_obj@meta.data %>% 
+  select(contains(c("Mean", "Max")))
+
+Neg_Mean_per_total_Count <- mean(rowMeans(Neg_probs)) / mean(rowSums(Counts))
+Per_Cell_BG <- rowSums(Counts) * Neg_Mean_per_total_Count
+
+# IS_Cohort <- fastCohorting(IF_Markers, gaussian_transform = TRUE)
+# write_rds(x = IS_Cohort, file = file.path(main_dir, "Data", "Edited_data", "ImmunoFlourescence_Cohorts.Rds"))
+
+```
+
+```{r InSituType unsupervised}
+
+Unsupervised_fileloc <- file.path(main_dir, "/Data/Annotations/Annotation_unsupervised.Rds")
+
+if (!file.exists(Unsupervised_fileloc)) {
+  Annotation_unsup <- InSituType::insitutype(x = Counts,
+                                             neg = Matrix::rowMeans(Neg_probs),
+                                             reference_profiles = NULL,
+                                             n_clust = 19, 
+                                             bg = Per_Cell_BG, 
+                                             cohort = IS_Cohort)       
+  
+  saveRDS(Annotation_unsup, file = Unsupervised_fileloc)
+} else {
+  Annotation_unsup <- readRDS(Unsupervised_fileloc)
+}
+
 ```
 
 ```{r}
 
-xy_cond_df <- xy_cond %>% 
-  as.data.frame() %>% 
-  rownames_to_column(var = "cell_ID")
+Seurat_obj$IST_unsup_clusters <- Annotation_unsup$clust
 
-XY[idx_sub, ] %>% 
-  select(cell_ID, fov, Slide, Sample) %>% 
-  mutate(Slide_Sample = factor(paste(Slide, Sample, sep = "_"))) %>% 
-  inner_join(xy_cond_df, by = "cell_ID") %>% 
-  ggplot(., aes(x = x, y = y)) +
-    geom_point(aes(colour = Slide_Sample), alpha = 0.5, size = 0.1) +
-    coord_equal() +
-    theme_void() 
+pheatmap(Scale_rows_pheatmap(Annotation_unsup_2$profiles),
+         fontsize_row = 8, 
+         col = colorRampPalette(c("white", "darkblue"))(100), 
+         main = "Heatmap of InSituType unsupervised clusters")
+
+flight <- InSituType::flightpath_layout(logliks = Annotation_unsup_2$logliks,
+                                        profiles = Annotation_unsup_2$profiles)
+
+cellpos <- as.data.frame(flight$cellpos) %>% 
+    mutate(cluster = Annotation_unsup_2$clust)
+
+clustpos <- as.data.frame(flight$clustpos) %>% 
+    rownames_to_column(var = "cluster")
+
+ggplot(cellpos, aes(x = x, y = y, color = cluster)) +
+  geom_point(size = 0.3, alpha = 0.6) +
+  geom_text(data = clustpos, aes(x = x, y = y, label = cluster),
+            color = "black", size = 3, inherit.aes = FALSE) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "InSituType unsupervised: Flightpath layout")
+
+DimPlot(Seurat_obj, group.by = "IST_unsup_clusters") +
+  labs(title = "UMAP coloured by InSituType unsupervised clusters") +
+  theme_minimal()
+
+DimPlot(Seurat_obj, group.by = "seurat_clusters") +
+  labs(title = "UMAP coloured by InSituType unsupervised clusters") +
+  theme_minimal()
+
+table(Annotation_unsup_2$clust)
+plot_flightpath_leg(flightpath_obj = flight, annotation_obj = Annotation_unsup_2, title = "Unsupervised")
+
+```
+
+```{r Annotation for the Kidney HCA scRNA dataset from nanostring }
+
+Kidney_HCA_profiles <- download_profile_matrix(species = "Human",
+                                               age_group = "Adult",
+                                               matrixname = "Kidney_HCA")
+
+Run_insitutype_panel(Seurat_obj = Seurat_obj, 
+                     Ref_matrix = Kidney_HCA_profiles, 
+                     ref_tag = "Kidney_HCA")
+
+```
+
+```{r}
+
+Run_insitutype_panel(Seurat_obj = Seurat_obj, 
+                     Ref_matrix = NULL, 
+                     ref_tag = "unsupervised_3", 
+                     n_clust = 25, 
+                     refine = FALSE)
+
+```
+
+```{r Add the metadata of the clusters to the object and add spread to the UMAP}
+
+Kidney_HCA_clusters <- read_csv(file = file.path(main_dir, "Results/Annotations/Kidney_HCA/Kidney_HCA_clusters.csv")) %>% 
+  deframe()
+
+Unsupervised_3_clusters <- read_csv(file = file.path(main_dir, "Results/Annotations/unsupervised_3/unsupervised_3_clusters.csv")) %>% 
+  deframe()
+
+Seurat_obj$Kidney_HCA_clusters <- Kidney_HCA_clusters[colnames(Seurat_obj)]
+Seurat_obj$Unsupervised_3_clusters <- Unsupervised_3_clusters[colnames(Seurat_obj)]
+
+Seurat_obj <- RunUMAP(object = Seurat_obj, 
+                      reduction = "harmony", 
+                      dims = 1:15, 
+                      min.dist = 0.3, 
+                      spread = 10, 
+                      reduction.name = "umap_spread_10")
+
+Seurat_obj <- RunUMAP(Seurat_obj,
+                      reduction = "harmony",  
+                      dims = 1:20,       
+                      n.neighbors = 50,         
+                      min.dist = 0.2,        
+                      spread = 1.5, 
+                      reduction.name = "umap_tuned")
+
+## Save the annotated object ##
+# saveRDS(object = Seurat_obj, file = file.path(main_dir, "Data/Edited_data/Seurat_Annotated.Rds"))
+
+```
+
+```{r Visualise the UMAPs by the annotation groups}
+
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data/Edited_data/Seurat_Annotated.Rds"))
+
+PlotUMAPWithCentroids(Seurat_obj = Seurat_obj, 
+                      reduction = "umap", 
+                      group.by = "Kidney_HCA_clusters", 
+                      title = "Kidney HCA reference profiles", 
+                      save = TRUE)
+
+PlotUMAPWithCentroids(Seurat_obj = Seurat_obj, 
+                      reduction = "umap", 
+                      group.by = "Unsupervised_3_clusters", 
+                      title = "unsupervised", 
+                      save = TRUE)
+
 
 ```
 

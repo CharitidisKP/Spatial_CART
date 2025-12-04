@@ -141,58 +141,24 @@ lbl_cells_percent <- function(b) {
                 big.mark = ","), " (", scales::percent(b, accuracy = 1), ")")
 }
 
-
-
 ## Function to visualise cell annotation results ##
-plot_flightpath_noleg <- function(flightpath_obj,
-                            annotation_obj,
-                            prefix = "Flightpath_") {
+Custom_flighpath <- function(flightpath_obj,
+                             annotation_obj,
+                             unsupervised = FALSE,
+                             title = NULL, 
+                             plot_seed = 1511) {
   
   ## Get object name simplify for the title ##
-  obj_name <- deparse(substitute(flightpath_obj))
-  dataset_tag <- sub(paste0("^", prefix), "", obj_name) ## Remove "Flightpath_" ##
-  current_ref_dataset <- gsub("_", " ", dataset_tag) ## Replace underscores for within the plot ##
+  if (unsupervised == TRUE) {
+    title_text <- paste0("InSituType annotation: Unsupervised")
+  } else {
+    title_text <- paste0("InSituType annotation using the: ", title, " reference profiles")
+  }
   
-  ## Plot the cells ##
-  Celltypes_df <- flightpath_obj$cellpos %>% 
-    as.data.frame() %>% 
-    mutate(Cluster = factor(Annotation_6k_KRCC$clust))
-  
-  ## Cluster label positions ##
-  Celltypes_pos_df <- flightpath_obj$clustpos %>% 
-    as.data.frame() %>% 
-    rownames_to_column(var = "Cluster") %>% 
-    mutate(Cluster = factor(Cluster))
-  
-  ## Scatter plot ##
-  ggplot(Celltypes_df, aes(x = x, y = y, color = Cluster)) +
-    geom_point(size = 0.2, alpha = 0.8) +
-    geom_text(data = Celltypes_pos_df, aes(x = x, y = y, label = Cluster),
-              color = "black", size = 3, show.legend = FALSE) +
-    coord_equal() +
-    theme_void() +
-    theme(legend.position = "none", 
-          plot.margin = margin(0, 0, 0, 0)) +
-    labs(title = paste0("Annotation results using the: ", 
-                        current_ref_dataset, 
-                        " reference dataset"))
-}
-
-## Visualisation 2, with the legend ##
-
-plot_flightpath_leg <- function(flightpath_obj,
-                            annotation_obj,
-                            prefix = "Flightpath_") {
-  
-  ## Get object name simplify for the title ##
-  obj_name <- deparse(substitute(flightpath_obj))
-  dataset_tag <- sub(paste0("^", prefix), "", obj_name) ## Remove "Flightpath_" ##
-  current_ref_dataset <- gsub("_", " ", dataset_tag) ## Replace underscores for within the plot ##
-  
-  Cluster_stats <- tibble(Cluster = Flightpath_6k_KRCC$clust) %>%
+  Cluster_stats <- tibble(Cluster = flightpath_obj$clust) %>%
     group_by(Cluster) %>%
     summarise(n_cells = n(), .groups = "drop") %>%
-    mutate(mean_conf = Flightpath_6k_KRCC$meanconfidence, 
+    mutate(mean_conf = flightpath_obj$meanconfidence, 
            Cluster_lab = sprintf("%s (n = %s, mean conf = %.2f)", Cluster, 
                                  scales::comma(n_cells), mean_conf), 
            Cluster = factor(Cluster)) %>% 
@@ -201,7 +167,7 @@ plot_flightpath_leg <- function(flightpath_obj,
   ## Plot the cells ##
   Celltypes_df <- flightpath_obj$cellpos %>% 
     as.data.frame() %>% 
-    mutate(Cluster = factor(Annotation_6k_KRCC$clust)) %>% 
+    mutate(Cluster = factor(annotation_obj$clust)) %>% 
     left_join(Cluster_stats, by = "Cluster") %>%
     mutate(Cluster_lab = factor(Cluster_lab, levels = Cluster_stats$Cluster_lab))
   
@@ -213,20 +179,23 @@ plot_flightpath_leg <- function(flightpath_obj,
     left_join(Cluster_stats, by = "Cluster") %>%
     mutate(Cluster_lab = factor(Cluster_lab, levels = Cluster_stats$Cluster_lab))
   
+  set.seed(plot_seed)
   ## Scatter plot ##
   ggplot(Celltypes_df, aes(x = x, y = y, colour = Cluster_lab)) +
     geom_point(size = 0.2, alpha = 0.8) +
-    geom_text(data = Celltypes_pos_df, aes(x = x, y = y, label = Cluster),
-              colour = "black", size = 3, show.legend = FALSE) +
-    coord_equal() +
+    geom_label_repel(data = Celltypes_pos_df, aes(x = x, y = y, label = Cluster),
+                     colour = "black", fill = "white", label.size = 0.2, fontface = "bold",
+                     label.r = unit(0.1, "lines"), size = 3, show.legend = FALSE) +
     theme_void() +
-    labs(title = paste0("Annotation results using the: ", 
-                        current_ref_dataset, 
-                        " reference dataset"), 
-         colour = "InSituType Clusters") +
+    labs(title = title_text, 
+         colour = paste0("InSituType Clusters")) +
     guides(colour = guide_legend(override.aes = list(size = 4), ncol = 1)) +
     theme(legend.position = "right", 
-          plot.margin = margin(0, 0, 0, 0)) 
+          plot.margin = margin(0, 0, 0, 0), 
+          plot.title = element_text(face = "bold", hjust = 0.5), 
+          legend.title = element_text(face = "bold", size = 11), 
+          legend.text = element_text(face = "bold", size = 9)) 
+  
 }
 
 ## Helper for the pheatmap visualisations ##
@@ -236,3 +205,328 @@ Scale_rows_pheatmap <- function(mat, min_max = 0.2, min_keep = 0.2) {
   scaled <- mat / pmax(row_max, min_max)
   scaled[row_max > min_keep, , drop = FALSE]
 }
+
+## Annotation and refinement function ##
+## 1. Loads the reference celltype profiles ##
+## 2. Filters the genes of the seurat counts based on the reference ##
+## 3. Creates the initial annotation ##
+## 4. Visualises the initial results ##
+## 5. Refines the annotation based on the size of the "unknown" clusters ##
+## 6. Re-visualises after refinement ##
+
+Run_insitutype_panel <- function(Seurat_obj,
+                                 Ref_matrix = NULL,
+                                 ref_tag,
+                                 n_clust = 0,
+                                 refine = TRUE,
+                                 auto_delete_letters = TRUE,
+                                 to_delete = NULL,
+                                 seed = 1511) {
+  
+  ## Define the folders ##
+  ann_dir <- file.path(main_dir, "Data", "Annotations")
+  res_dir <- file.path(main_dir, "Results", "Annotations")
+  
+  if (!dir.exists(ann_dir)) dir.create(ann_dir, recursive = TRUE)
+  if (!dir.exists(res_dir)) dir.create(res_dir, recursive = TRUE)
+  
+  ## Folder for each panel ##
+  ref_tag_dir <- file.path(res_dir, ref_tag)
+  if (!dir.exists(ref_tag_dir)) dir.create(ref_tag_dir, recursive = TRUE)
+  
+  ## Define the paths ##
+  ann_rds <- file.path(ann_dir, paste0("Annotation_", ref_tag, ".Rds"))
+  ann_ref_rds <- file.path(ann_dir, paste0("Annotation_", ref_tag, "_refined.Rds"))
+  flight_png <- file.path(ref_tag_dir, paste0("Flightpath_", ref_tag, ".png"))
+  flight_ref_png <- file.path(ref_tag_dir, paste0("Flightpath_", ref_tag, "_refined.png"))
+  pheatmap_png <- file.path(ref_tag_dir, paste0("Pheatmap_", ref_tag, ".png"))
+  pheatmap_ref_png <- file.path(ref_tag_dir, paste0("Pheatmap_", ref_tag, "_refined.png"))
+  
+  
+  ## Load counts and the reference ##
+  Counts <- GetAssayData(Seurat_obj, assay = "RNA", layer = "counts") %>% 
+    t()
+  
+  Neg_probs <- GetAssayData(Seurat_obj, assay = "negprobes", layer = "counts") %>% 
+    t()
+  
+  
+  ## Load reference profiles or keep unsupervised ##
+  unsupervised <- FALSE
+  
+  if (is.null(Ref_matrix)) {
+    Ref_mat <- NULL
+    unsupervised <- TRUE
+    
+  } else if (is.character(Ref_matrix) && length(Ref_matrix) == 1 && 
+             grepl("\\.csv$", Ref_matrix, ignore.case = TRUE)) {
+    
+    unsupervised <- FALSE
+    Ref_mat <- read.csv(Ref_matrix, row.names = 1, header = TRUE, check.names = FALSE)
+    
+  } else if (inherits(Ref_matrix, c("matrix", "array", "data.frame", "dgCMatrix"))) {
+    Ref_mat <- as.matrix(Ref_matrix)
+    
+  } else {
+    stop("Ref_matrix must be either:\n",
+         "  - NULL (unsupervised)\n",
+         "  - path to a CSV file\n",
+         "  - matrix / data.frame / dgCMatrix")
+  }
+  
+  IF_Markers <- Seurat_obj@meta.data %>% 
+    select(contains(c("Mean", "Max")))
+  
+  Neg_Mean_per_total_Count <- mean(rowMeans(Neg_probs)) / mean(rowSums(Counts))
+  Per_Cell_BG <- rowSums(Counts) * Neg_Mean_per_total_Count
+  
+  edited_data_dir <- file.path(main_dir, "Data", "Edited_data")
+  
+  if (file.exists(file.path(edited_data_dir, "ImmunoFlourescence_Cohorts.Rds"))) {
+    IS_Cohort <- readRDS(file.path(edited_data_dir, "ImmunoFlourescence_Cohorts.Rds"))
+  } else {
+    IF_Markers <- Seurat_obj@meta.data %>% 
+      select(contains(c("Mean", "Max")))
+    
+    IS_Cohort <- fastCohorting(IF_Markers, gaussian_transform = TRUE)
+  }
+  
+  ## Run InSituType (or load if existing) ##
+  if (file.exists(ann_rds)) {
+    Annotation <- readRDS(ann_rds)
+    
+  } else {
+    set.seed(seed)
+    
+    if (is.null(Ref_matrix)) {
+      
+      ## Unsupervisedvised InSituType ##
+      if (n_clust <= 0) {
+        stop("In unsupervised mode (Ref_matrix = NULL), n_clust must be > 0.") 
+      }
+      
+      Annotation <- InSituType::insitutype(x = Counts,
+                                           neg = Matrix::rowMeans(Neg_probs),
+                                           reference_profiles = NULL,
+                                           n_clust = n_clust,   
+                                           bg = Per_Cell_BG,
+                                           cohort = IS_Cohort)
+      
+    } else {
+      
+      ## Reference based InSituType ##
+      Annotation <- InSituType::insitutype(x = Counts,
+                                           neg = Matrix::rowMeans(Neg_probs),
+                                           reference_profiles = Ref_mat,
+                                           update_reference_profiles = FALSE,
+                                           n_clust = n_clust, 
+                                           bg = Per_Cell_BG, 
+                                           cohort = IS_Cohort)
+    } 
+    saveRDS(Annotation, ann_rds) 
+  }
+  
+  ## Initial pheatmap ##
+  Pheat <- pheatmap::pheatmap(Scale_rows_pheatmap(Annotation$profiles),
+                              fontsize_row = 4,
+                              col = colorRampPalette(c("white", "darkblue"))(100), 
+                              filename = pheatmap_png)
+  
+  ## Initial flightpath ##
+  Flight <- InSituType::flightpath_layout(logliks = Annotation$logliks,
+                                          profiles = Annotation$profiles)
+  
+  Flight_plot <- Custom_flighpath(flightpath_obj = Flight, 
+                                  annotation_obj = Annotation, 
+                                  unsupervised = unsupervised,
+                                  title = ref_tag)
+  
+  ggplot2::ggsave(plot = Flight_plot, filename = flight_png,
+                  width = 16, height = 10, dpi = 600, device = "png")
+  
+  ## Decide which clusters to refine/delete ##
+  # to_delete = TRUE the "unknown" clusters are removed and the cells are supplied to the immediate next cluster ##
+  if (is.null(to_delete) && auto_delete_letters) {
+    letter_clusters <- intersect(letters, unique(Annotation$clust))
+    to_delete <- sort(letter_clusters)
+  }
+  
+  ## Optional refineClusters step ##
+  Annotation_ref <- NULL
+  Flight_ref <- NULL
+  Flight_ref_plot <- NULL
+  Pheat_ref <- NULL
+  
+  if (refine && length(to_delete) > 0) {
+    
+    if (file.exists(ann_ref_rds)) {
+      Annotation_ref <- readRDS(ann_ref_rds)
+      
+    } else {
+      
+      Annotation_ref <- InSituType::refineClusters(logliks = Annotation$logliks,
+                                                   counts = Counts,
+                                                   neg = Matrix::rowMeans(Neg_probs),
+                                                   to_delete = to_delete)
+      saveRDS(Annotation_ref, ann_ref_rds)
+    }
+    
+    Pheat_ref <- pheatmap::pheatmap(Scale_rows_pheatmap(Annotation_ref$profiles),
+                                    fontsize_row = 4,
+                                    col = colorRampPalette(c("white", "darkblue"))(100), 
+                                    filename = pheatmap_ref_png)
+    
+    Flight_ref <- InSituType::flightpath_layout(logliks = Annotation_ref$logliks,
+                                                profiles = Annotation_ref$profiles)
+    
+    Flight_ref_plot <- Custom_flighpath(flightpath_obj = Flight_ref, 
+                                        annotation_obj = Annotation_ref, 
+                                        unsupervised = unsupervised, 
+                                        title = ref_tag)
+    
+    ggplot2::ggsave(plot = Flight_ref_plot, filename = flight_ref_png, 
+                    width = 16, height = 10, dpi = 600, device = "png")
+    
+  }
+  
+  ## Save the annotations to the common csv file ##
+  Clusters_total_path <- file.path(ref_tag_dir, paste0(ref_tag, "_clusters.csv"))
+  
+  ## Get original annotations ##
+  Clusters_current <- tibble::enframe(Annotation$clust, 
+                                      name = "cell_ID", 
+                                      value = paste0(ref_tag, "_clusters"))
+  
+  ## Check if there is a refined annotation ##
+  Clusters_current_ref <- NULL
+  if (file.exists(ann_ref_rds)) {
+    Annotation_ref <- readRDS(ann_ref_rds)
+    
+    Clusters_current_ref <- tibble::enframe(Annotation_ref$clust,
+                                            name  = "cell_ID",
+                                            value = paste0(ref_tag, "_clusters_ref")) 
+  }
+  
+  ## If there is a preexisting CLuster file load it, otherwise create it ##
+  if (file.exists(Clusters_total_path)) {
+    Cell_annotations_total <- read_csv(Clusters_total_path)
+  } else {
+    Cell_annotations_total <- Clusters_current
+  }
+  
+  Cell_annotations_total <- Cell_annotations_total %>% 
+    left_join(Clusters_current, by = "cell_ID")
+  
+  ## If refinement was performed add those clusters too ##
+  if (!is.null(Clusters_current_ref)) {
+    Cell_annotations_total <- Cell_annotations_total %>% 
+      left_join(Clusters_current_ref, by = "cell_ID")
+    }
+  
+  ## Save the updated file ##
+  write_csv(x = Cell_annotations_total, file = file.path(ref_tag_dir, paste0(ref_tag, "_clusters.csv")))
+  
+}
+
+
+## Better UMAP visualisation ##
+PlotUMAPWithCentroids <- function(Seurat_obj,
+                                  reduction = "umap",         
+                                  group.by,                   
+                                  title = NULL,
+                                  legend_ncol = 1,
+                                  point_size = 0.1,
+                                  point_alpha = 0.5,
+                                  label_size = 3, 
+                                  save = FALSE, 
+                                  width = 16, 
+                                  height = 10, 
+                                  dpi = 600, 
+                                  out_dir = NULL, 
+                                  filename = NULL) {
+  
+  ## Retrieve the reduction's information from the object ##
+  emb <- Seurat::Embeddings(Seurat_obj, reduction)
+  
+  emb_df <- as.data.frame(emb) %>%
+    rownames_to_column("cell_ID") %>% 
+    rename(UMAP_1 = !!colnames(emb)[1],
+           UMAP_2 = !!colnames(emb)[2])
+  
+  ## Get grouping variable from metadata ##
+  meta_df <- Seurat_obj@meta.data %>%
+    select(cell_ID, !!group.by)
+  
+  colnames(meta_df)[2] <- "group_var"  # standard name
+  
+  plot_df <- emb_df %>%
+    left_join(meta_df, by = "cell_ID")
+  
+  group_sym <- sym("group_var")
+  
+  ## Get the centroids for the labels ##
+  centroids <- plot_df %>%
+    group_by(!!group_sym) %>%
+    summarise(UMAP_1 = median(UMAP_1),
+              UMAP_2 = median(UMAP_2),
+              .groups = "drop")
+  
+  ## Assign the title ##
+  if (is.null(title)) {
+    tag <- gsub(pattern = "clusters", replacement = "reference", group.by)
+    tag <- gsub(pattern = "_", replacement = " ", tag)
+    title <- paste0("UMAP projection by ", tag, " annotations")
+  } else {
+    title <- paste0("UMAP projection by ", title, " annotations")
+  }
+  
+  ## Perform the plotting
+  UMAP_plot <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, colour = !!group_sym)) +
+    geom_point(size = point_size, alpha = point_alpha) +
+    geom_label_repel(data = centroids,
+                     aes(label = !!group_sym),
+                     colour = "black",
+                     fill = "white",
+                     size = label_size,
+                     label.size  = 0.25,
+                     label.r = unit(0.15, "lines"),
+                     segment.size = 0.2,
+                     show.legend = FALSE, 
+                     max.overlaps = Inf) +
+    # coord_equal() +
+    labs(title  = title,
+         x = "UMAP 1",
+         y = "UMAP 2",
+         colour = "Annotation clusters") +
+    guides(colour = guide_legend(ncol = 1, override.aes = list(size = 3))) +
+    theme_minimal(base_size = 12, base_family = "sans") +
+    theme(legend.position = "right",
+          plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+          axis.title = element_text(face = "bold"),
+          legend.title = element_text(face = "bold", size = 11),
+          legend.text = element_text(size = 9))
+  
+  if (save) {
+    
+    if (is.null(out_dir)) {
+      out_dir <- file.path(main_dir, "Results/UMAP_Plots")
+    }
+    
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+    
+    if (is.null(filename)) {
+      safe_group <- gsub("[^A-Za-z0-9_]+", "_", group.by)
+      safe_red   <- gsub("[^A-Za-z0-9_]+", "_", reduction)
+      filename <- paste0("UMAP_", safe_red, "_", safe_group, ".png")
+    }
+    
+    ggsave(plot = UMAP_plot, filename = file.path(out_dir, filename), 
+           width = width, height = height, dpi = dpi, device = "png")
+  }
+  
+  return(UMAP_plot)
+  
+}
+    
+  
+  

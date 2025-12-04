@@ -36,6 +36,7 @@ library(tiff)
 library(Matrix)
 library(patchwork)
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/CondenseXY.R")
 Init_project("~/P_lab/Spatial_CART/")
 
 ```
@@ -70,10 +71,92 @@ Seurat_merged <- merge(x = My_Seurat_objs_clean[[1]],
 
 ```
 
+
+```{r Create the sample id column and concentrated coordinates}
+
+Sample_meta <- Seurat_merged@meta.data %>% 
+  mutate(Slide_num = as.integer(str_extract(Run_Tissue_name, "(?<=Slide)\\d+")), 
+         Slide = paste0("Slide_", Slide_num), 
+         Sample = case_when(Slide_num == 1 & fov >=  1 & fov <= 28 ~ 4,
+                            Slide_num == 1 & fov >= 29 & fov <= 41 ~ 3,
+                            Slide_num == 1 & fov >= 42 & fov <= 54 ~ 2,
+                            Slide_num == 1 & fov >= 55 & fov <= 71 ~ 1,
+                            Slide_num == 2 ~ 5, TRUE ~ NA), 
+         Group = case_when(Slide_num == 1 ~ "CART",
+                           Slide_num == 2 ~ "Control", 
+                           Slide_num == c(3, 4, 31, 32) ~ "Conventional", 
+                           TRUE ~ NA_character_), 
+         Group = factor(Group, levels = c("CART", "Control", "Conventional")))
+
+XY <- Sample_meta %>% 
+  select(cell_ID, fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, Slide, Sample) 
+
+fov_vec <- XY$fov
+tissue_vec <- factor(paste(XY$Slide, XY$Sample, sep = "_"))
+
+XY <- XY %>% 
+  select(x_slide_mm, y_slide_mm) %>% 
+  transmute(x = x_slide_mm,
+            y = y_slide_mm) %>%
+  as.matrix()
+
+xy_cond_buffer <- condenseXY(xy = XY, 
+                      fov = fov_vec,
+                      tissue = tissue_vec,
+                      condensefovs = TRUE,
+                      condensetissues = TRUE,
+                      eps = 1.5,
+                      mindist = 0.1,
+                      fovbuffer = 0.2, 
+                      tissueorder = NULL,
+                      tissuebuffer = 1,
+                      widthheightratio = 4/3)
+
+xy_cond <- condenseXY(xy = XY, 
+                      fov = fov_vec,
+                      tissue = tissue_vec,
+                      condensefovs = TRUE,
+                      condensetissues = TRUE,
+                      eps = 1.5,
+                      mindist = 0.1,
+                      fovbuffer = 0.2, 
+                      tissueorder = NULL,
+                      tissuebuffer = 0,
+                      widthheightratio = 4/3)
+
+# Build a tibble with coords + cluster labels
+Sample_meta <- as.data.frame(xy_cond, .name_repair = "minimal") %>% 
+  setNames(c("x_cond", "y_cond")) %>% 
+  rownames_to_column(var = "cell_ID") %>% 
+  inner_join(y = Sample_meta, by = "cell_ID")
+
+Seurat_merged@meta.data <- Sample_meta
+
+```
+
+```{r Lets get a look at the FOVs before the anotation}
+
+Seurat_merged@meta.data %>%
+  mutate(Sample = factor(Sample)) %>%
+  transform(., x_px = x_slide_mm * 0.18,
+               y_px = y_slide_mm * 0.18) %>% 
+  # ggplot(., aes(x = x_cond, y = y_cond, colour = Sample)) +
+  ggplot(., aes(x = x_px, y = y_px, colour = Sample)) +
+  geom_point(size = 0.1, alpha = 0.6) +
+  coord_equal() +
+  facet_wrap(~ Slide_num) +
+  theme_void() +
+  guides(colour = guide_legend(override.aes = list(size = 2))) +
+  labs(colour = "Sample", title = "FOVs by sample")
+
+```
+
+
+
 ```{r Create the Seurat Object}
 
 ## Load the TIFF for the slides ##
-Tissue_bg <- readTIFF(source = file.path(main_dir, "Data", "MCF-ASCIST-1250-Slide-CART (1979 8769 6063 4322).tiff"), 
+Tissue_bg <- readTIFF(source = file.path(main_dir, "Data/TIFFs", "MCF-ASCIST-1250-Slide-CART (1979 8769 6063 4322).tiff"), 
                       native = FALSE)
 
 ## Convert to raster ##

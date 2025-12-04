@@ -111,7 +111,6 @@ DimPlot(Seurat_norm, reduction = "umap", group.by = "fov")
 
 ```
 
-
 ```{r Save the normalised seurat object with PCAs and UMAPs}
 
 SaveSeuratRds(object = Seurat_norm, file = file.path(main_dir, "Data", "Edited_data", "Seurat_normalised.Rds"))
