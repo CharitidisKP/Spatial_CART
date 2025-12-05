@@ -34,6 +34,9 @@ library(Seurat)
 library(SeuratObject)
 library(Matrix)
 library(RColorBrewer)
+library(ggtext)
+library(scales)
+library(patchwork)
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
 Init_project("~/P_lab/Spatial_CART/")
 
@@ -41,37 +44,164 @@ Init_project("~/P_lab/Spatial_CART/")
 
 ```{r Load the batch corrected seurat oject}
 
-Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data/Edited_data/Seurat_Annotated.Rds"))
+
+```
+
+```{r Highly variable features}
+
+HV_Genes <- HVFInfo(Seurat_obj) %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Gene")
+
+top_20_HVF <- head(VariableFeatures(Seurat_obj), 20)
+total_HVF <- VariableFeatures(Seurat_obj)
+
+HV_Genes <- HV_Genes %>% 
+  mutate(is_top = Gene %in% top_20_HVF,
+         is_HVF = Gene %in% total_HVF,
+         Label = ifelse(is_top, Gene, NA_character_),
+         Rank = rank(-variance.standardized, ties.method = "first"), 
+         Var_class = if_else(is_HVF, "Variable", "Non-variable"))
+
+n_var <- sum(HV_Genes$Var_class == "Variable", na.rm = TRUE)
+n_non <- sum(HV_Genes$Var_class == "Non-variable", na.rm = TRUE)
+
+HVF_plot <- ggplot(HV_Genes, aes(x = mean, y = variance.standardized)) +
+  geom_point(aes(alpha = is_top, size = 0.1, colour = Var_class)) +
+  ggrepel::geom_label_repel(data = HV_Genes %>% dplyr::filter(is_top),
+                           aes(label = Label), size = 3, max.overlaps = Inf,
+                           box.padding = 0.4, point.padding = 0.2, 
+                           fill = "white", colour = "black") +
+  scale_color_manual(values = c("Non-variable" = "grey30", "Variable" = "firebrick"), 
+                     breaks = c("Non-variable", "Variable"),
+                     labels = c("Non-variable" = paste0("Non-variable count: ", n_non),
+                                "Variable" = paste0("Variable count: ", n_var)),
+                     name = NULL) +
+  scale_alpha_manual(values = c(`FALSE` = 0.8, `TRUE` = 1)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(x = "Average expression (log<sub>10</sub>)",
+       y = "Standardized variance (log<sub>10</sub>)",
+       title = paste0("Highly variable genes (top 20 highlighted)")) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"),
+        axis.title.x = element_markdown(face = "bold"),
+        axis.title.y = element_markdown(face = "bold"),
+        panel.grid.minor = element_blank()) +
+  guides(alpha = "none", size = "none")
+
+# ggsave(filename = file.path(main_dir, "Results/DE_Plots/HVG_rank_plot.png"),
+#        plot = HVF_plot, width = 16, height = 10, dpi = 600)
+
+```
+
+```{r Elbow plot}
+
+# Get standard deviations from PCA
+PCA_sdev <- Seurat_obj[["pca"]]@stdev
+
+Elbow_df <- tibble(PC = 1:length(PCA_sdev),
+                   Variance = PCA_sdev^2) %>%
+  mutate(PropVar = Variance / sum(Variance), 
+         CumPropVar = cumsum(PropVar))
+
+dims_to_highlight <- min(Elbow_df$PC[Elbow_df$CumPropVar >= 0.6])
+
+Elbow_plot <- ggplot(Elbow_df, aes(x = PC, y = PropVar)) +
+  geom_line() +
+  geom_point(size = 1) +
+  geom_vline(xintercept = dims_to_highlight, linetype = "dashed") +
+  annotate("text", x = dims_to_highlight, y = max(Elbow_df$PropVar) * 0.5,
+           label = paste0("60% variance at PC ", dims_to_highlight),
+           angle = 90, size = 3, vjust = -0.5) +
+  scale_y_continuous(labels = percent_format(accuracy = 1), 
+                     limits = c(0, max(Elbow_df$PropVar) * 1.05), expand = c(0, 0)) +
+  scale_x_continuous(limits = c(1, 20), breaks = seq(1, 20, by = 1)) +
+  labs(x = "Principal component",
+       y = "Variance explained",
+       title = "Elbow plot for PCA") +
+  theme_classic(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"),
+        axis.title.x = element_text(face = "bold"),
+        axis.title.y = element_text(face = "bold"), 
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_blank()) 
+
+Elbow_plot
+
+
+```
+
+```{r VizDimLoadings improved}
+
+dims_to_plot <- 1:12
+
+PCA_loadings <- Seurat_obj[["pca"]]@feature.loadings
+
+Loadings_df <- as.data.frame(PCA_loadings) %>%
+  tibble::rownames_to_column("Gene") %>%
+  dplyr::select(Gene, dplyr::all_of(paste0("PC_", dims_to_plot))) %>%
+  tidyr::pivot_longer(cols = dplyr::starts_with("PC_"),
+                      names_to = "PC",
+                      values_to = "Loading") %>%
+  dplyr::group_by(PC) %>%
+  dplyr::mutate(abs_loading = abs(Loading)) %>%
+  dplyr::slice_max(n = 20, order_by = abs_loading) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(PC) %>%
+  dplyr::mutate(Gene = forcats::fct_reorder(Gene, Loading), 
+                PC = factor(PC, levels = paste0("PC_", dims_to_plot), labels = paste("PC", dims_to_plot))) %>%
+  dplyr::ungroup()
+
+PC_Loadings_plot <- ggplot(Loadings_df, aes(x = Gene, y = Loading, fill = Loading)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient2(low = "royalblue", mid = "white", high = "firebrick") +
+  facet_wrap(~ PC, scales = "free_y") +
+  labs(x = NULL, y = "PC loading",
+       title = "Top 20 genes by PC loading",
+       fill = "Loading") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title  = element_text(face = "bold"),
+        axis.title.x = element_text(face = "bold"),
+        # axis.title.y = element_text(face = "bold"),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())
+
+PC_Loadings_plot
 
 ```
 
 ```{r}
 
-top10 <- head(VariableFeatures(Seurat_obj), 10)
-plot1 <- VariableFeaturePlot(Seurat_obj)
-plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
-plot1 + plot2
-
-```
-
-```{r}
-
-print(Seurat_obj[["pca"]], dims = 1:5, nfeatures = 5)
-VizDimLoadings(Seurat_obj, dims = 1:2, reduction = "pca")
-DimPlot(Seurat_obj, reduction = "pca")
-DimHeatmap(Seurat_obj, dims = 1:15, cells = 1500, balanced = TRUE)
+# print(Seurat_obj[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(Seurat_obj, dims = 1:12, reduction = "pca")
+DimHeatmap(Seurat_obj, dims = 1:12, cells = 1500, balanced = TRUE)
 ElbowPlot(Seurat_obj)
 
 ```
 
 ```{r Compute DE markers per cluster}
 
-markers <- FindAllMarkers(Seurat_obj,
-                          assay = "RNA",
-                          only.pos = TRUE, 
-                          min.pct = 0.05, ## gene expressed in >= 5% of cells 
-                          logfc.threshold = 0.5,
-                          test.use = "wilcox")
+markers_Kidney_HCA <- FindAllMarkers(Seurat_obj,
+                                     assay = "RNA", 
+                                     group.by = "Kidney_HCA_clusters",
+                                     only.pos = TRUE, 
+                                     min.pct = 0.05, ## gene expressed in >= 5% of cells 
+                                     logfc.threshold = 0.5,
+                                     test.use = "wilcox")
+
+markers_unsupervised <- FindAllMarkers(Seurat_obj,
+                                       assay = "RNA", 
+                                       group.by = "Unsupervised_3_clusters",
+                                       only.pos = TRUE, 
+                                       min.pct = 0.05, ## gene expressed in >= 5% of cells 
+                                       logfc.threshold = 0.5,
+                                       test.use = "wilcox")
+
+# write_csv(x = markers_Kidney_HCA, file = file.path(main_dir, "Results/Tables/DE_Genes/markers_Kidney_HCA.csv"))
+# write_csv(x = markers_unsupervised, file = file.path(main_dir, "Results/Tables/DE_Genes/markers_unsupervised_3.csv"))
 
 ```
 
@@ -200,5 +330,122 @@ tibble(Gene = Vasc_markers_df$Gene,
        Gene_in_Panel = Gene %in% Panel)
 
 
+```
+
+
+
+
+
+
+
+```{r}
+
+Custom_VLN(obj = Seurat_obj, 
+           features = c("ALDOB"),
+           group_by = "Kidney_HCA_clusters",
+           ncol = 1)
+
+
+plots_HCA <- Plot_top_markers_VLN(obj = Seurat_obj,
+                                  markers_tbl = markers_Kidney_HCA,
+                                  group_by = "Kidney_HCA_clusters",
+                                  out_dir = file.path(main_dir, "Results/DE_Plots/VLN_Plots/Kidney_HCA"),
+                                  top_n = 3,
+                                  prefix = "Kidney_HCA")
+
+B_pan <- c("MS4A1", "CD79A", "CD79B", "CD19", "CD74", "CD22")
+intersect(B_pan, Features(Seurat_obj))
+gene_tag <- paste(B_pan, collapse = "_")
+
+p1 <- Plot_manual_markers_VLN(obj = Seurat_obj,
+                              group_by = "Kidney_HCA_clusters",
+                              cell_type = "B.cell",
+                              markers = B_pan,
+                              save_path = file.path(main_dir, "Results/DE_Plots/VLN_Plots/Custom_Kidney_HCA",
+                              paste0("B_cell_", gene_tag, ".png")),
+                              pt_size = 0)
+
+
+
+
+```
+
+```{r}
+
+B_top_3 <- markers_Kidney_HCA %>% 
+  filter(cluster == "B.cell") %>% 
+  slice_max(n = 3, order_by = avg_log2FC) %>% 
+  pull(gene)
+
+B_main <- c("MS4A1", "CD19", "CD22")
+B_Markers <- c(B_top_3, B_main)
+
+p_MS4A1 <- FeaturePlot(Seurat_obj, 
+                       features = B_Markers,
+                       reduction = "umap",   
+                       pt.size = 1,
+                       min.cutoff = "q05",
+                       max.cutoff = "q95", 
+                       # cols = c("grey90", "firebrick")
+                       combine = FALSE) +
+  theme_void(base_size = 12) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        legend.position = "right",
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(size = 9)) +
+  labs(title = "B cell markers expression on the UMAP projection", colour = "Expression")
+
+p_MS4A1
+
+
+
+```
+
+```{r}
+
+B_plots <- FeaturePlot(
+  Seurat_obj,
+  features   = B_Markers,
+  reduction  = "umap",
+  pt.size    = 0.4,
+  min.cutoff = "q05",
+  max.cutoff = "q95",
+  cols       = c("grey90", "midnightblue"),
+  combine    = FALSE           # <- important
+)
+
+# 2. Clean theme for each plot
+B_plots <- lapply(seq_along(B_plots), function(i) {
+  B_plots[[i]] +
+    theme_void(base_size = 12) +
+    theme(
+      plot.title   = element_text(face = "bold", hjust = 0.5),
+      legend.position = "right",
+      legend.title    = element_text(face = "bold"),
+      legend.text     = element_text(size = 8),
+      plot.margin     = margin(t = 5, r = 5, b = 5, l = 5)
+    ) +
+    labs(title = B_Markers[i], colour = "Expression")
+})
+
+# 3. Arrange in a grid and add a single global title + single legend
+B_feature_grid <- wrap_plots(B_plots, ncol = 3, guides = "collect") +
+  plot_annotation(
+    title = "B cell markers expression on the UMAP projection"
+  ) &
+  theme(
+    legend.position = "right",
+    legend.title    = element_text(face = "bold"),
+    legend.text     = element_text(size = 8)
+  )
+
+B_feature_grid
+
+ggsave(file.path(main_dir, "Results/DE_Plots/FeaturePlots/B_markers_UMAP_grid.png"),
+       B_feature_grid,
+  width  = 16,
+  height = 10,
+  dpi    = 300, device = "png"
+)
 ```
 
