@@ -528,5 +528,173 @@ PlotUMAPWithCentroids <- function(Seurat_obj,
   
 }
     
+## Custom vln plot for the markers ##
+Custom_VLN <- function(obj, features, group_by = NULL, ncol = 3, pt.size = 0) {
   
+  p <- VlnPlot(obj,
+               features = features,
+               group.by = group_by, 
+               pt.size = pt.size,
+               cols = NULL,       
+               ncol = ncol) 
   
+  p & theme_classic(base_size = 12) &
+    theme(plot.title = element_text(face = "bold"),
+          axis.title.x = element_blank(),
+          axis.title.y = element_text(face = "bold"),
+          axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+          strip.text = element_text(face = "bold"),
+          legend.position = "none")
+  
+}
+  
+Plot_top_markers_VLN <- function(obj,
+                                 markers_tbl,
+                                 group_by,
+                                 top_n = 3,
+                                 out_dir = NULL,
+                                 prefix = "Kidney_HCA", 
+                                 pt_size = 0) {
+  
+  # 1. keep significant markers
+  sig_markers <- markers_tbl %>%
+    filter(p_val_adj < 0.05)
+  
+  # 2. top N genes per "cluster" (this column is created by FindAllMarkers)
+  top_markers_by_cluster <- sig_markers %>%
+    group_by(cluster) %>%
+    slice_max(n = top_n, order_by = avg_log2FC) %>%
+    ungroup()
+  
+  # list of features per cluster
+  marker_list <- top_markers_by_cluster %>%
+    group_split(cluster) %>%
+    set_names(unique(top_markers_by_cluster$cluster)) %>%
+    map(~ .x$gene)
+  
+  # 3. generate one violin plot per cluster
+  plots <- imap(marker_list, ~ {
+    clust <- .y
+    feats <- .x
+    
+    p <- Custom_VLN(obj = obj,
+                    features = feats,
+                    group_by = group_by,
+                    ncol = length(feats),
+                    pt.size = pt_size) +
+      patchwork::plot_annotation(title = paste0("Top markers for ", group_by, ": ", clust))
+    
+    # 4. optionally save to disk
+    if (!is.null(out_dir)) {
+      fname <- file.path(out_dir, paste0(prefix, "_Cluster_", clust, "_violin.png"))
+      ggsave(fname, p, width = 16, height = 10, dpi = 300)
+    }
+    
+    p
+  })
+  
+  return(plots)  # list of ggplot objects
+}
+
+## Custom vln plot for the markers ##
+Custom_VLN <- function(obj, features, group_by = NULL, ncol = 1, pt.size = 0) {
+  
+  vln_list <- lapply(seq_along(features), function(i) {
+    gene <- features[i]
+    
+    p <- VlnPlot(obj, 
+                 features = gene, 
+                 group.by = group_by, 
+                 pt.size = pt.size,
+                 cols = NULL) +
+      coord_cartesian(clip = "off") +
+      theme_classic(base_size = 12) +
+      theme(plot.title = element_text(face = "bold"),
+            axis.title.y = element_text(face = "bold"),
+            strip.text = element_text(face = "bold"),
+            legend.position = "none", 
+            plot.margin = margin(t = 5.5, r = 5.5, b = 10, l = 30))
+    
+# Remove x text for all but the bottom panel
+    if (i < length(features)) {
+      p <- p +
+        theme(axis.text.x  = element_blank(),
+              axis.title.x = element_blank(), 
+              axis.title.y = element_blank(),
+              plot.margin = margin(t = 5.5, r = 5.5, b = 10, l = 30))
+    } else {
+      p <- p +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1, margin = margin(l = 5)), 
+              axis.title.x = element_blank(), 
+              axis.title.y = element_blank(),
+              plot.margin = margin(t = 5.5, r = 5.5, b = 10, l = 65))
+    }
+    
+    p
+  })
+  
+  # Stack: 1 column → N rows
+  p_stack <- wrap_plots(vln_list, ncol = 1) 
+  
+  p_stack <- cowplot::ggdraw(p_stack) +
+    cowplot::draw_label(label = "Expression Level",
+                        x = 0.02,   
+                        y = 0.6,    
+                        angle = 90,
+                        vjust = 0.5,
+                        fontface = "bold") +
+    theme(plot.margin = margin(t = 5.5, r = 5.5, b = 10, l = 65))
+  
+  p_stack
+}
+
+## VLN but custom for specific markers and celltypes ##
+Plot_manual_markers_VLN <- function(obj,
+                                    group_by,
+                                    cell_type,
+                                    markers,
+                                    save_path = NULL,
+                                    pt_size = 0) {
+  
+  # make the stacked violins for the chosen markers
+  p <- Custom_VLN(obj = obj,
+                  features = markers,
+                  group_by = group_by,
+                  ncol = 1,
+                  pt.size = pt_size) +
+    patchwork::plot_annotation(title = paste0("Marker expression for ", group_by, ": ", cell_type)) 
+  
+  # optionally save to disk
+  if (!is.null(save_path)) {
+    dir.create(dirname(save_path), showWarnings = FALSE, recursive = TRUE)
+    ggsave(save_path, p, width = 16, height = 10, dpi = 300)
+  }
+  
+  return(p)
+}
+
+## FeaturePlot CUstom ##
+B_plots <- FeaturePlot(Seurat_obj,
+                       features = B_Markers,
+                       reduction = "umap",
+                       pt.size = 1,
+                       min.cutoff = "q05",
+                       max.cutoff = "q95",
+                       cols = c("grey30", "firebrick"),
+                       combine = FALSE)
+
+# tweak each plot: remove axes, center title, small legend
+B_plots <- lapply(seq_along(B_plots), function(i) {
+  p <- B_plots[[i]] +
+    theme_void(base_size = 12) +
+    theme(
+      plot.title   = element_text(face = "bold", hjust = 0.5),
+      legend.position = "right",
+      legend.title    = element_text(face = "bold"),
+      legend.text     = element_text(size = 8),
+      plot.margin     = margin(t = 5, r = 5, b = 5, l = 5)
+    ) +
+    labs(title = B_Markers[i], colour = "Expression")
+  
+  p
+})
