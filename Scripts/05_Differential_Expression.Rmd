@@ -205,140 +205,7 @@ markers_unsupervised <- FindAllMarkers(Seurat_obj,
 
 ```
 
-```{r Markers by cluster}
-
-markers_top10 <- markers %>% 
-  group_by(cluster) %>% 
-  slice_max(n = 10, order_by = avg_log2FC)
-
-markers_top10
-
-```
-
-```{r Reference markers from this publication: https://pmc.ncbi.nlm.nih.gov/articles/PMC9233501/}
-
-## This is incomplete, fill it out ##
-ref_markers <- tibble(
-  cell_type = c("Proximal_tubule", "Loop_of_Henle", "Distal_tubule", "Collecting_duct", 
-                "Endothelial", "Fibroblast", "Macrophage", "T_cell", "B_cell"),
-  markers = list(c("SLC5A2","SLC34A1","LRP2"), # proximal tubule
-                 c("UMOD","SLC12A1","CYP17A1"), # loop of Henle (example genes)
-                 c("SLC12A3","CLCNKA","CLCNKB"), # distal tubule
-                 c("AQP2","SCNN1G","ATP6V0D2"), # collecting duct
-                 c("PECAM1","VWF","EMCN"), # endothelial
-                 c("DCN","COL1A2","PDGFRA"), # fibroblast / interstitial
-                 c("C1QA","C1QB","C1QC","LYZ"), # macrophage / monocyte
-                 c("CD3D","CD3E","CD8A","CD4"), # T cells
-                 c("MS4A1","CD79A","CD74") # B cells
-  ))
-
-```
-
-```{r}
-
-Sign_Markers <- markers %>% 
-  filter(p_val_adj < 0.05)
-
-overlap_df <- expand_grid(Cluster = unique(Sign_Markers$cluster), 
-                          Cell_type = ref_markers$cell_type) %>% 
-  mutate(Ref_set = map(Cell_type, ~ref_markers$markers[[which(ref_markers$cell_type == .x)]])) %>% 
-  rowwise() %>% 
-  mutate(Overlap = sum(Sign_Markers$gene[Sign_Markers$cluster == Cluster] %in% Ref_set),
-         n_ref = length(Ref_set),
-         n_cluster = sum(Sign_Markers$cluster == Cluster),
-         prop = Overlap / n_ref) %>%
-  ungroup()
-
-overlap_df %>% 
-  filter(prop > 0) %>% 
-  arrange(Cluster, desc(prop))
-
-```
-
-```{r Vasculature Markers}
-
-Endothilial <- c("NRP1", "CDH5", "ELN")
-Glomerular_Endothilium <- c("PLAT", "EMCN", "TSAPN7", "MAPT", 
-                            "KDR", "SMAD6", "EHD3", "LPL", "FLT1", 
-                            "FBLN2", "MGP", "TRPV4", "BMX")
-Capillaries <- c("KDR", "SMAD6", "EHD3", "LPL", "FLT1")
-Arterioles <- c("FBLN2", "MGP", "TRPV4", "BMX",
-                "SOX17", "CXCL12", "GJA5")
-Vas_afferens <- c("EDN1", "FBLN5", "CLDN5", "EFNB2")
-Vas_efferens <- c("KLF4", "CRYAB", "GAS6", "PODX")
-Peritubular_capillaries <- c("PLVAP")
-Venules <- c("PIVAP", "BGN", "CD9", "NR2F2")
-Ascending_vasa_recta <- c("FXYD2", "FXYD6", "IGFOP7")
-Descending_vasa_recta <- c("SIC14A1", "AQP1", "S100A4")
-
-Vasc_markers_list <- list(Endothilial = Endothilial, 
-                          Glomerular_Endothilium = Glomerular_Endothilium, 
-                          Capillaries = Capillaries, 
-                          Arterioles = Arterioles, 
-                          Vas_afferens = Vas_afferens, 
-                          Vas_efferens = Vas_efferens, 
-                          Peritubular_capillaries = Peritubular_capillaries, 
-                          Venules = Venules, 
-                          Ascending_vasa_recta = Ascending_vasa_recta, 
-                          Descending_vasa_recta = Descending_vasa_recta)
-
-Vasc_markers_df <- enframe(Vasc_markers_list, name = "Subtype", value = "Gene") %>% 
-  tidyr::unnest_longer(Gene) %>% 
-  mutate(Type = "Vasculature", .before = Subtype)
-
-```
-
-```{r Proximal tubule Markers}
-
-PT <- c("LRP2", "CUBN", "SLC5A2", "SLC34A1", "ALDOB", 
-        "SLC22A6", "SLC22A8", "DNASE1L3", "HAVCR1")
-
-
-TAL <- c("UMOD", "SLC12A1", "KCNJ1", "CLCNKB", "CASR")
-DCT <- c("SLC12A3", "PVALB", "TRPM6", "KCNJ10")
-CNT <- c("SLC8A1", "CALB1", "S100G")
-CD_Principal <- c("AQP2", "AQP3", "AQP4", "SCNN1A", "SCNN1B", "SCNN1G")
-CD_Intercalated_A <- c("ATP6V1B1", "ATP6V0D2", "SLC4A1")
-CD_Intercalated_B <- c("SLC26A4", "KRT7", "FOXI1")
-
-Tubular_markers_list <- list(
-  PT_S1_S2 = PT_S1_S2,
-  PT_S3 = PT_S3,
-  TAL = TAL,
-  DCT = DCT,
-  CNT = CNT,
-  CD_Principal = CD_Principal,
-  CD_Intercalated_A = CD_Intercalated_A,
-  CD_Intercalated_B = CD_Intercalated_B)
-
-Tubular_markers_df <- enframe(Tubular_markers_list, name = "Subtype", value = "Gene") %>% 
-  tidyr::unnest_longer(Gene) %>% 
-  mutate(Type = "Tubular", .before = Subtype)
-
-```
-
-
-
-
-```{r}
-
-Panel <- Features(Seurat_obj)
-
-intersect(Vasc_markers_df$Gene, Panel)
-
-tibble(Gene = Vasc_markers_df$Gene,
-       Gene_in_Panel = Gene %in% Panel)
-
-
-```
-
-
-
-
-
-
-
-```{r}
+```{r Violin plots for the Kidney HCA dataset}
 
 Custom_VLN(obj = Seurat_obj, 
            features = c("ALDOB"),
@@ -365,12 +232,9 @@ p1 <- Plot_manual_markers_VLN(obj = Seurat_obj,
                               paste0("B_cell_", gene_tag, ".png")),
                               pt_size = 0)
 
-
-
-
 ```
 
-```{r}
+```{r B cell marker plots}
 
 B_top_3 <- markers_Kidney_HCA %>% 
   filter(cluster == "B.cell") %>% 
@@ -397,11 +261,9 @@ p_MS4A1 <- FeaturePlot(Seurat_obj,
 
 p_MS4A1
 
-
-
 ```
 
-```{r}
+```{r B cell markers feature plots}
 
 B_plots <- FeaturePlot(
   Seurat_obj,
@@ -449,3 +311,294 @@ ggsave(file.path(main_dir, "Results/DE_Plots/FeaturePlots/B_markers_UMAP_grid.pn
 )
 ```
 
+```{r Violin plots for the unsupervised results}
+
+Custom_VLN(obj = Seurat_obj, 
+           features = c("ALDOB"),
+           group_by = "Unsupervised_3_clusters",
+           ncol = 1)
+
+
+plots_Uns_3 <- Plot_top_markers_VLN(obj = Seurat_obj,
+                                  markers_tbl = markers_unsupervised,
+                                  group_by = "Unsupervised_3_clusters",
+                                  out_dir = file.path(main_dir, "Results/DE_Plots/VLN_Plots/Unsupervised_3"),
+                                  top_n = 3,
+                                  prefix = "Unsupervised_3")
+
+B_pan <- c("MS4A1", "CD79A", "CD79B", "CD19", "CD74", "CD22")
+intersect(B_pan, Features(Seurat_obj))
+gene_tag <- paste(B_pan, collapse = "_")
+
+p1 <- Plot_manual_markers_VLN(obj = Seurat_obj,
+                              group_by = "Unsupervised_3_clusters",
+                              cell_type = "B.cell",
+                              markers = B_pan,
+                              save_path = file.path(main_dir, "Results/DE_Plots/VLN_Plots/Custom_Unsupervised_3",
+                              paste0("B_cell_", gene_tag, ".png")),
+                              pt_size = 0)
+
+```
+
+```{r Plot all differentially expressed markers for a cluster group}
+
+## Unsupervised model ##
+Plot_all_sig_genes_VLN(obj = Seurat_obj, 
+                       markers_tbl = markers_unsupervised, 
+                       group_by = "Unsupervised_3_clusters", 
+                       annotation_name = "Unsupervised_3", 
+                       out_dir_base = file.path(main_dir, "Results/DE_Plots/VLN_Plots"), 
+                       p_adj_cutoff = 0.05, 
+                       avg_log2FC_cutoff = 1.5,
+                       pt_size = 0, 
+                       overwrite = TRUE)
+
+## Reference based - Kidney HCA ##
+Plot_all_sig_genes_VLN(obj = Seurat_obj, 
+                       markers_tbl = markers_Kidney_HCA, 
+                       group_by = "Kidney_HCA_clusters", 
+                       annotation_name = "Kidney_HCA", 
+                       out_dir_base = file.path(main_dir, "Results/DE_Plots/VLN_Plots"), 
+                       p_adj_cutoff = 0.05, 
+                       avg_log2FC_cutoff = 1.5,
+                       pt_size = 0, 
+                       overwrite = TRUE)
+
+```
+
+Create the dataframe for the manual annotation markers based on this publication: https://doi.org/10.1146/annurev-physiol-052521-121841
+
+```{r Vasculature Markers}
+
+Endothilial <- c("NRP1", "CDH5", "ELN")
+Glomerular_Endothilium <- c("PLAT", "EMCN", "TSAPN7", "MAPT", 
+                            "KDR", "SMAD6", "EHD3", "LPL", "FLT1", 
+                            "FBLN2", "MGP", "TRPV4", "BMX")
+Capillaries <- c("KDR", "SMAD6", "EHD3", "LPL", "FLT1")
+Arterioles <- c("FBLN2", "MGP", "TRPV4", "BMX",
+                "SOX17", "CXCL12", "GJA5")
+Vas_afferens <- c("EDN1", "FBLN5", "CLDN5", "EFNB2")
+Vas_efferens <- c("KLF4", "CRYAB", "GAS6", "PODX")
+Peritubular_capillaries <- c("PLVAP")
+Venules <- c("PIVAP", "BGN", "CD9", "NR2F2")
+Ascending_vasa_recta <- c("FXYD2", "FXYD6", "IGFOP7")
+Descending_vasa_recta <- c("SIC14A1", "AQP1", "S100A4")
+
+Vasc_markers_list <- list(Endothilial = Endothilial, 
+                          Glomerular_Endothilium = Glomerular_Endothilium, 
+                          Capillaries = Capillaries, 
+                          Arterioles = Arterioles, 
+                          Vas_afferens = Vas_afferens, 
+                          Vas_efferens = Vas_efferens, 
+                          Peritubular_capillaries = Peritubular_capillaries, 
+                          Venules = Venules, 
+                          Ascending_vasa_recta = Ascending_vasa_recta, 
+                          Descending_vasa_recta = Descending_vasa_recta)
+
+Vasc_markers_df <- enframe(Vasc_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Vasculature", .before = Subtype)
+
+```
+
+```{r Proximal tubule Markers}
+
+Pan_PT <- c("SLC34A1", "LRP2", "HXYD2", "HRSP12", "ACSM1", 
+            "ACSM2", "CPT1A", "ACOX3", "SLC26A6", "SLC9A3", 
+            "GLUD1", "PCK1", "AQP8", "HNF4A", "PPARA")
+Progenitors_PT <- c("NOTCH2", "LGR4")
+Proximal_Tubule_straight <- c("ATP11A", "SLC13A3", "SLC16A9", "SLC27A2", 
+                              "SLC7A13", "SLC22A6", "SLC1A1")
+Proximal_Tubule_convoluted <- c("ATP5A2", "SLC5A12", "ADRA1A", "SLC6A19", 
+                                "SLC7A8", "SLC7A9")
+Injured_PT <- c("HAVCR1", "KRT20", "HSPA1A", "VCAM1", 
+                "DCDC2A", "SEMA5A")
+
+PT_markers_list <- list(Pan_PT = Pan_PT,
+                        Progenitors_PT = Progenitors_PT,
+                        Injured_PT = Injured_PT,
+                        Proximal_Tubule_straight = Proximal_Tubule_straight,
+                        Proximal_Tubule_convoluted = Proximal_Tubule_convoluted)
+
+PT_markers_df <- enframe(PT_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Proximal_Tubule", .before = Subtype)
+
+```
+
+```{r Mesangium (smooth muscle cells and juxtaglomerular cells) Markers}
+
+Mesangial <- c("Serpine2", "FHL2", "DES", "PRKCA", 
+               "ART3", "NT5E", "PDGFRB")
+Pericytes <- c("VIM", "TAGLN", "MYH11", "PDGFRB")
+SMC <- c("TAGLN", "MYH11", "ACTA2", 
+         "GATA3", "RERGL", "MAP3K7D") 
+JG <- c("REN1", "AKR1B7", "RGS5")
+
+Mesangium_markers_list <- list(Mesangial = Mesangial,
+                               Pericytes = Pericytes,
+                               SMC = SMC,
+                               JG = JG)
+
+Mesangium_markers_df <- enframe(Mesangium_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Mesangium", .before = Subtype)
+
+```
+
+```{r Podocyte Markers}
+
+Adult_Podocytes <- c("NPHS1", "NPHS2", "SYNPO", "CDKN1C", "WT1")
+Progenitor_Podocytes <- c("WT1", "FOXC2", "MAFB", "EFNB2", "FOXL1")
+
+Podocyte_markers_list <- list(Adult_Podocytes = Adult_Podocytes,
+                               Progenitor_Podocytes = Progenitor_Podocytes)
+
+Podocyte_markers_df <- enframe(Podocyte_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Podocyte", .before = Subtype)
+
+```
+
+```{r Loop of Henly and Macula Densa Markers}
+
+Descending_thin_LOH <- c("FST", "AQP1", "SLC14A2", "BST1", "EPHA7", 
+                         "CRYAB", "TSHZ2", "CALD1", "LYPD2")
+Assending_thin_LOH <- c("EPHA7", "MX2", "CLCNKA")
+Assending_thick_LOH <- c("SLC12A1", "UMOD", "TMEM207", "FOXQ1", 
+                         "CLDN10", "PTGER3", "KCNJ1", "ENOX1", 
+                         "THSD4", "MT2", "SLC5A3")
+
+LOH_markers_list <- list(Descending_thin_LOH = Descending_thin_LOH,
+                         Assending_thin_LOH = Assending_thin_LOH,
+                         Assending_thick_LOH = Assending_thick_LOH)
+
+LOH_markers_df <- enframe(LOH_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "LOH", .before = Subtype)
+
+Macula_Densa <- c("ENOX1", "THSD4", "NAS1", "AVPR1A")
+
+Macula_Densa_markers_list <- list(Macula_Densa = Macula_Densa)
+
+Macula_Densa_markers_df <- enframe(Macula_Densa_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "MD", .before = Subtype)
+
+```
+
+```{r Distal convoluted and connecting tubule}
+
+DCT1 <- c("PVALB", "SLC12A3", "TRPM7", "WNK1", "WNK4", 
+          "STK39", "CALB1", "SLC8A1", "EGF", "TRPM6", "FXYD2",
+          "CNNM2", "ATP1A1", "ATP1A2", "ATP1A3", "ATP1A4")
+DCT2 <- c("SLC12A3", "TRPM7", "WNK1", "WNK4", "KLHL3", 
+          "STK39", "CALB1", "SLC8A1", "EGF", "TRPM6", 
+          "CNNM2", "ATP1A1", "ATP1A2", "ATP1A3", "ATP1A4", 
+          "FXYD2", "KLK1", "TRPV5", "S100G", "ATP2B1", 
+          "ATP2B4", "SCNN1B", "SCNN1G", "KCNE1")
+
+DCT_markers_list <- list(DCT1 = DCT1,
+                         DCT2 = DCT2)
+
+DCT_markers_df <- enframe(DCT_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "DCT", .before = Subtype)
+
+CNT <- c("CALB1", "SLC8A1", "EGF", "KLK1", 
+         "TRPM6", "S100G", "ATP2B1", "SCNN1B", 
+         "SCNN1G", "KCNE1")
+
+CNT_markers_list <- list(CNT = CNT)
+
+CNT_markers_df <- enframe(CNT_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "CNT", .before = Subtype)
+
+```
+
+```{r Collecting duct markers}
+
+CD_Principal <- c("SCNN1B", "SCNN1G", "AQP2", "AVPR2", "HSD11B2", 
+                  "RHBG", "ELF5", "FXYD4", "AQP3", "APELA", 
+                  "KCNE1", "NPNT", "KCNJ10")
+CD_Intercalated_Pan <- c("TCFCP2L1", "FOXI", "ATP6V1G3", 
+                         "ATP6V0D2", "INSR", "ATP6V1b1")
+CD_Intercalated_A <- c("ATP4A", "SLC4A1", "AQP6", 
+                       "KIT", "ADGRF5", "MME")
+CD_Intercalated_B <- c("SLC26A4", "HMX2", "SPINK8")
+CD_Transitional <- c("AQP2", "HSD11B2", "RHBG", "ATP6V1G3", "ATP6V0D2", 
+                     "INSR", "ATP6V1B1", "PARM1", "SEC23B")
+
+CD_markers_list <- list(CD_Principal = CD_Principal,
+                        CD_Intercalated_Pan = CD_Intercalated_Pan, 
+                        CD_Intercalated_A = CD_Intercalated_A, 
+                        CD_Intercalated_B = CD_Intercalated_B, 
+                        CD_Transitional = CD_Transitional)
+
+CD_markers_df <- enframe(CD_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "CD", .before = Subtype)
+
+```
+
+```{r Immune cell markers}
+
+Macrophages <- c("C1QA", "C1QB", "ITGAM", "APOE", "C1QC", 
+                  "CD74", "CTSS", "FCER1G", "AIF1", "MS4A7")
+Neutrophils <- c("S100A8", "S100A9", "LYZ2", "PLAC8", "IFITM3", 
+                 "CEBPB", "TYROBP", "LST1", "FCER1G", "HP")
+Basophils <- c("IFITM1", "HDC", "MCMPT8", "FCER1A", "CRSP3", 
+               "MS4A2", "CYP11A1", "CD200R3", "IL6", "IL4")
+Dendritic_11B_pos <- c("CD74", "CD209A", "WFDC17", "MGL2", "CCL6", 
+                       "CCL9", "CTSS", "ALOX5AP", "IFITM3", "TYROBP")
+Dendritic_11B_neg <- c("IRF8", "NAAA", "LPBD1", "CBFA2T3", "BASP1", 
+                       "RNASE6", "WDFY3", "SEPT3", "PPM1M", "RAB7B")
+Dendritic_plasmocytoid <- c("LY6D", "SIGLECH", "COX6A2", "RNASE6", "SELL", 
+                            "CCR9", "RUNX2", "CD209D", "BCL11A", "LAIR1")
+B_Cells <- c("CD79A", "CD79B", "MS4A1", "LY6D", "EBF1", 
+             "CD22", "CD19", "FCMR", "SIGLECG", "FCRL1")
+T_Cells <- c("CXCR6", "CD247", "NKG7")
+CD4_T_Cells <- c("LEF1", "MS4A4B", "IL7R", "CCR7", "KLF2", 
+                 "TCF7", "DAPL1", "SATB1", "CD3D")
+CD8_Effector <- c("CCL5", "NKG7", "IL7R", "CCR7", "KLF2", 
+                  "TCF7", "DAPL1", "SATB1", "CD3D")
+T_regulatory <- c("TNFRSF4", "CAPG", "IKZF2", "IZUMO1R", "IFI27L2A", 
+                  "S100A4", "RGS1", "CD3G", "LTB", "TNFRSF18")
+T_NK_Cells <- c("LY6C2", "CXCR6", "GIMAP3", "TMSB10", "CD3G", 
+                "GIMAP4", "CTSW", "NKG7", "HCST", "LTB")
+NK_Cells <- c("GZMA", "NKG7", "CD7", "CCL5", "XCL1", 
+              "KLRD1", "KLRK1", "NCR1", "KLRE1", "IL2RB")
+
+Immune_markers_list <- list(Macrophages = Macrophages,
+                            Neutrophils = Neutrophils, 
+                            Basophils = Basophils, 
+                            Dendritic_11B_pos = Dendritic_11B_pos, 
+                            Dendritic_11B_neg = Dendritic_11B_neg, 
+                            Dendritic_plasmocytoid = Dendritic_plasmocytoid, 
+                            B_Cells = B_Cells, 
+                            T_Cells = T_Cells, 
+                            CD4_T_Cells = CD4_T_Cells, 
+                            CD8_Effector = CD8_Effector, 
+                            T_regulatory = T_regulatory, 
+                            T_NK_Cells = T_NK_Cells, 
+                            NK_Cells = NK_Cells)
+
+Immune_markers_df <- enframe(Immune_markers_list, name = "Subtype", value = "Gene") %>% 
+  tidyr::unnest_longer(Gene) %>% 
+  mutate(Type = "Immune", .before = Subtype)
+
+```
+
+```{r Bind the marker dataframes}
+
+Kidney_Markers_total <- bind_rows(Vasc_markers_df, PT_markers_df, 
+                                  Mesangium_markers_df, Podocyte_markers_df, 
+                                  Macula_Densa_markers_df, CNT_markers_df, 
+                                  CD_markers_df, Immune_markers_df)
+
+```
+ 
+ 
+
+ 

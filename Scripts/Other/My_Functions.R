@@ -548,6 +548,7 @@ Custom_VLN <- function(obj, features, group_by = NULL, ncol = 3, pt.size = 0) {
   
 }
   
+## Plot a number of the top markers by Log2FC ##
 Plot_top_markers_VLN <- function(obj,
                                  markers_tbl,
                                  group_by,
@@ -673,28 +674,126 @@ Plot_manual_markers_VLN <- function(obj,
   return(p)
 }
 
-## FeaturePlot CUstom ##
-B_plots <- FeaturePlot(Seurat_obj,
-                       features = B_Markers,
-                       reduction = "umap",
-                       pt.size = 1,
-                       min.cutoff = "q05",
-                       max.cutoff = "q95",
-                       cols = c("grey30", "firebrick"),
-                       combine = FALSE)
 
-# tweak each plot: remove axes, center title, small legend
-B_plots <- lapply(seq_along(B_plots), function(i) {
-  p <- B_plots[[i]] +
-    theme_void(base_size = 12) +
-    theme(
-      plot.title   = element_text(face = "bold", hjust = 0.5),
-      legend.position = "right",
-      legend.title    = element_text(face = "bold"),
-      legend.text     = element_text(size = 8),
-      plot.margin     = margin(t = 5, r = 5, b = 5, l = 5)
-    ) +
-    labs(title = B_Markers[i], colour = "Expression")
+
+## Make into function ##
+# B_plots <- FeaturePlot(
+#   Seurat_obj,
+#   features   = B_Markers,
+#   reduction  = "umap",
+#   pt.size    = 0.4,
+#   min.cutoff = "q05",
+#   max.cutoff = "q95",
+#   cols       = c("grey90", "midnightblue"),
+#   combine    = FALSE           # <- important
+# )
+# 
+# # 2. Clean theme for each plot
+# B_plots <- lapply(seq_along(B_plots), function(i) {
+#   B_plots[[i]] +
+#     theme_void(base_size = 12) +
+#     theme(
+#       plot.title   = element_text(face = "bold", hjust = 0.5),
+#       legend.position = "right",
+#       legend.title    = element_text(face = "bold"),
+#       legend.text     = element_text(size = 8),
+#       plot.margin     = margin(t = 5, r = 5, b = 5, l = 5)
+#     ) +
+#     labs(title = B_Markers[i], colour = "Expression")
+# })
+# 
+# # 3. Arrange in a grid and add a single global title + single legend
+# B_feature_grid <- wrap_plots(B_plots, ncol = 3, guides = "collect") +
+#   plot_annotation(
+#     title = "B cell markers expression on the UMAP projection"
+#   ) &
+#   theme(
+#     legend.position = "right",
+#     legend.title    = element_text(face = "bold"),
+#     legend.text     = element_text(size = 8)
+#   )
+# 
+# B_feature_grid
+# 
+# ggsave(file.path(main_dir, "Results/DE_Plots/FeaturePlots/B_markers_UMAP_grid.png"),
+#        B_feature_grid,
+#        width  = 16,
+#        height = 10,
+#        dpi    = 300, device = "png"
+# )
+
+
+
+
+Plot_all_sig_genes_VLN <- function(obj,
+                                   markers_tbl,
+                                   group_by,
+                                   annotation_name,
+                                   out_dir_base,
+                                   p_adj_cutoff = 0.05,
+                                   avg_log2FC_cutoff = 1.5,
+                                   pt_size = 0,
+                                   overwrite = FALSE) {
   
-  p
-})
+  ## Significant thresholds ##
+  sig_tbl <- markers_tbl %>%
+    dplyr::filter(p_val_adj <= p_adj_cutoff &
+                  avg_log2FC > avg_log2FC_cutoff) %>%
+    dplyr::select(cluster, gene, avg_log2FC, p_val_adj) %>%
+    dplyr::distinct()
+  
+  ## Output directory ##
+  out_dir_annotation <- file.path(out_dir_base, annotation_name)
+  dir.create(out_dir_annotation, showWarnings = FALSE, recursive = TRUE)
+  
+  ## Choose clusters ##
+  clusters <- sort(unique(sig_tbl$cluster))
+  
+  ## Initiate loop ##
+  for (cl in clusters) {
+    message("Cluster: ", cl)
+    
+    ## Create subfolder per cluster ##
+    out_dir_cluster <- file.path(out_dir_annotation, cl)
+    dir.create(out_dir_cluster, showWarnings = FALSE, recursive = TRUE)
+    
+    ## Get the significant genes for the current cluster ##
+    genes_cl <- sig_tbl %>%
+      dplyr::filter(cluster == cl) %>%
+      dplyr::arrange(dplyr::desc(avg_log2FC)) %>%
+      dplyr::pull(gene) %>%
+      unique(gene, avg_log2FC)
+    
+    ## Visualisation loop ##
+    for (i in seq_len(nrow(genes_cl))) {
+      
+      g <- genes_cl$gene[i]
+      fc <- genes_cl$avg_log2FC[i]
+      
+      ## Make sure the gene names contain acceptable characters ##
+      g_safe <- gsub("[^A-Za-z0-9._-]", "_", g)
+      
+      ## Create the filenames ##
+      fname <- paste0(annotation_name, "_", cl, "_", g_safe, "_Vln.png")
+      fpath <- file.path(out_dir_cluster, fname)
+      
+      ## If it already exists and overwrite is set to FALSE skip ##
+      if (file.exists(fpath) && !overwrite) next
+      
+      ## Create the current gene's plot ##
+      p <- Custom_VLN(obj = obj,
+                      features = c(g),
+                      group_by = group_by,
+                      ncol = 1,
+                      pt.size = pt_size) +
+        patchwork::plot_annotation(title = paste0(annotation_name, ": cluster ", cl, " – ", g, 
+                                                  " (avg_log2FC=", sprintf("%.3f", fc), ")"))
+      
+      ggsave(fpath, p, width = 16, height = 9, dpi = 300)
+      
+    }
+  }
+}
+
+
+## Enrichment analysis function, for GO terms, KEGG and Reactome ##

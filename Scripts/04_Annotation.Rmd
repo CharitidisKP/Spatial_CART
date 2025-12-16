@@ -234,7 +234,7 @@ Seurat_obj <- readRDS(file = file.path(main_dir, "Data/Edited_data/Seurat_Annota
 PlotUMAPWithCentroids(Seurat_obj = Seurat_obj, 
                       reduction = "umap", 
                       group.by = "Kidney_HCA_clusters", 
-                      title = "Kidney HCA reference profiles", 
+                      title = "Kidney HCA reference", 
                       save = TRUE)
 
 PlotUMAPWithCentroids(Seurat_obj = Seurat_obj, 

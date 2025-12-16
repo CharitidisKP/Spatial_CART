@@ -1,0 +1,158 @@
+---
+title: "Differential expression and marker identification"
+author: "Konstantinos Charitidis"
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  bookdown::html_document2:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapse: false
+    number_sections: true
+    df_print: paged
+    theme: readable
+    code_folding: hide
+    self_contained: true
+    highlight: tango
+---
+
+```{r Setup, include = FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, message = FALSE, warning = FALSE)
+options(max.print = 200)
+
+```
+
+```{r Libraries, include = FALSE}
+
+library(tidyverse)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(ReactomePA)
+library(writexl)
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+Init_project("~/P_lab/Spatial_CART/")
+
+```
+
+```{r}
+
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data/Edited_data/Seurat_Annotated.Rds"))
+markers_Kidney_HCA <- read_csv(file = file.path(main_dir, "Results/Tables/DE_Genes/markers_Kidney_HCA.csv"))
+markers_unsupervised <- read_csv(file = file.path(main_dir, "Results/Tables/DE_Genes/markers_unsupervised_3.csv"))
+
+```
+
+```{r}
+
+
+run_enrichment <- function(genes_symbol,
+                           universe_symbol = NULL,
+                           p_cutoff = 0.05,
+                           q_cutoff = 0.05) {
+
+  ## Convert to Entrez symbols ##
+  genes_entrez <- bitr(genes_symbol, 
+                       fromType = "SYMBOL", 
+                       toType = "ENTREZID",
+                       OrgDb = org.Hs.eg.db) %>% 
+    pull(ENTREZID) %>% 
+    unique()
+
+  universe_entrez <- NULL
+  
+  if (!is.null(universe_symbol)) {
+    universe_entrez <- bitr(universe_symbol,
+                            fromType = "SYMBOL",
+                            toType = "ENTREZID",
+                            OrgDb = org.Hs.eg.db) %>% 
+      pull(ENTREZID) %>% 
+      unique()
+  }
+
+  GO <- enrichGO(gene = genes_entrez,
+                 universe = universe_entrez,
+                 OrgDb = org.Hs.eg.db,
+                 keyType = "ENTREZID",
+                 ont = "BP",
+                 pAdjustMethod = "BH",
+                 qvalueCutoff = q_cutoff,
+                 readable = TRUE)
+
+  KEGG <- enrichKEGG(gene = genes_entrez,
+                     universe = universe_entrez,
+                     organism = "hsa",
+                     pAdjustMethod = "BH",
+                     qvalueCutoff = q_cutoff)
+
+  Reactome <- enrichPathway(gene = genes_entrez,
+                            universe = universe_entrez,
+                            organism = "human",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = q_cutoff,
+                            readable = TRUE)
+
+  list(GO = GO, KEGG = KEGG, Reactome = Reactome)
+}
+
+```
+
+```{r}
+
+Run_enrichment_per_cluster <- function(markers_tbl,
+                                       annotation_name,
+                                       obj,
+                                       main_dir = main_dir,
+                                       p_adj_cutoff = 0.05,
+                                       min_genes = 10) {
+  
+  gene_universe <- Features(obj)
+  clusters <- unique(markers_tbl$cluster)
+
+  Enrichment_results <- list()
+
+  for (cl in clusters) {
+
+    message("Running enrichment for cluster: ", cl)
+
+    genes_cl <- markers_tbl %>%
+      filter(cluster == cl, p_val_adj < p_adj_cutoff) %>%
+      pull(gene) %>%
+      unique()
+
+    if (length(genes_cl) < min_genes) {
+      message("Skipping ", cl, " (too few genes)")
+      next
+    }
+
+    enr <- run_enrichment(genes_symbol = genes_cl,
+                          universe_symbol = gene_universe)
+
+    Enrichment_results[[cl]] <- enr
+
+    out_dir <- file.path(main_dir, "Results/Enrichment", annotation_name, "Clusters", cl)
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+    write_xlsx(list(GO = as.data.frame(enr$GO),
+                    KEGG = as.data.frame(enr$KEGG),
+                    Reactome = as.data.frame(enr$Reactome)),
+               path = file.path(out_dir, paste0("Enrichment_", annotation_name, "_", cl, ".xlsx")))
+  }
+
+  return(Enrichment_results)
+}
+
+```
+
+```{r}
+
+Enrichment_results <- Run_enrichment_per_cluster(markers_tbl = markers_unsupervised,
+                                                 annotation_name = "Unsupervised_3",
+                                                 obj = Seurat_obj)
+
+```
+
