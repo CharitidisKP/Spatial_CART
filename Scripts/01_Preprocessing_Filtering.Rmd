@@ -29,15 +29,16 @@ options(max.print = 200)
 
 ```{r Libraries, include = FALSE}
 
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/CondenseXY.R")
+Init_project("~/P_lab/Spatial_CART/")
 library(tidyverse)
 library(Seurat)
 library(SeuratObject)
 library(tiff)
-library(Matrix)
+# library(Matrix)
 library(patchwork)
-source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
-source(file = "~/P_lab/Spatial_CART/Scripts/Other/CondenseXY.R")
-Init_project("~/P_lab/Spatial_CART/")
+library(stringr)
 
 ```
 
@@ -66,13 +67,13 @@ My_Seurat_objs_clean <- lapply(My_Seurat_objs, function(obj) {
 
 Seurat_merged <- merge(x = My_Seurat_objs_clean[[1]], 
                        y = My_Seurat_objs_clean[-1],
-                       # add.cell.ids = names(My_Seurat_objs_clean), 
+                       add.cell.ids = names(My_Seurat_objs_clean),
                        project = "CosMx_CART")
 
 ```
 
 
-```{r Create the sample id column and concentrated coordinates}
+```{r Create the sample id columns}
 
 Sample_meta <- Seurat_merged@meta.data %>% 
   mutate(Slide_num = as.integer(str_extract(Run_Tissue_name, "(?<=Slide)\\d+")), 
@@ -81,70 +82,126 @@ Sample_meta <- Seurat_merged@meta.data %>%
                             Slide_num == 1 & fov >= 29 & fov <= 41 ~ 3,
                             Slide_num == 1 & fov >= 42 & fov <= 54 ~ 2,
                             Slide_num == 1 & fov >= 55 & fov <= 71 ~ 1,
-                            Slide_num == 2 ~ 5, TRUE ~ NA), 
+                            Slide_num == 2 ~ 5, 
+                            Slide_num == 3 ~ 6, 
+                            Slide_num == 4 ~ 7, 
+                            Slide_num == 31 ~ 8, 
+                            Slide_num == 32 ~ 9,
+                            TRUE ~ NA), 
          Group = case_when(Slide_num == 1 ~ "CART",
                            Slide_num == 2 ~ "Control", 
-                           Slide_num == c(3, 4, 31, 32) ~ "Conventional", 
+                           Slide_num %in% c(3, 4, 31, 32) ~ "Conventional", 
                            TRUE ~ NA_character_), 
-         Group = factor(Group, levels = c("CART", "Control", "Conventional")))
+         Group = factor(Group, levels = c("CART", "Control", "Conventional")), 
+         Biopsy = case_when(Sample == 1 ~ "T0", 
+                            Sample == 2 ~ "T12", 
+                            Sample == 3 ~ "T0", 
+                            Sample == 4 ~ "T12", 
+                            Sample == 5 ~ "T0", 
+                            Sample == 6 ~ "T0", 
+                            Sample == 7 ~ "T12", 
+                            Sample == 8 ~ "T0", 
+                            Sample == 9 ~ "T12", 
+                            TRUE ~ NA))
 
-XY <- Sample_meta %>% 
-  select(cell_ID, fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, Slide, Sample) 
+```
 
-fov_vec <- XY$fov
-tissue_vec <- factor(paste(XY$Slide, XY$Sample, sep = "_"))
 
-XY <- XY %>% 
-  select(x_slide_mm, y_slide_mm) %>% 
+```{r Condense the coordinates and apply to the metadata}
+
+XY <- Sample_meta %>%
+  select(cell_ID, fov, x_FOV_px, y_FOV_px, x_slide_mm, y_slide_mm, Slide, Sample, Group)
+
+FOV_vec <- XY$fov
+Tissue_vec <- factor(paste(XY$Slide, XY$Sample, sep = "_"))
+
+XY <- XY %>%
+  select(x_slide_mm, y_slide_mm) %>%
   transmute(x = x_slide_mm,
             y = y_slide_mm) %>%
   as.matrix()
 
-xy_cond_buffer <- condenseXY(xy = XY, 
-                      fov = fov_vec,
-                      tissue = tissue_vec,
+XY_cond <- condenseXY(xy = XY,
+                      fov = FOV_vec,
+                      tissue = Tissue_vec,
                       condensefovs = TRUE,
                       condensetissues = TRUE,
                       eps = 1.5,
                       mindist = 0.1,
-                      fovbuffer = 0.2, 
-                      tissueorder = NULL,
-                      tissuebuffer = 1,
-                      widthheightratio = 4/3)
-
-xy_cond <- condenseXY(xy = XY, 
-                      fov = fov_vec,
-                      tissue = tissue_vec,
-                      condensefovs = TRUE,
-                      condensetissues = TRUE,
-                      eps = 1.5,
-                      mindist = 0.1,
-                      fovbuffer = 0.2, 
+                      fovbuffer = 0.2,
                       tissueorder = NULL,
                       tissuebuffer = 0,
                       widthheightratio = 4/3)
 
 # Build a tibble with coords + cluster labels
-Sample_meta <- as.data.frame(xy_cond, .name_repair = "minimal") %>% 
-  setNames(c("x_cond", "y_cond")) %>% 
-  rownames_to_column(var = "cell_ID") %>% 
-  inner_join(y = Sample_meta, by = "cell_ID")
+Sample_meta <- as.data.frame(XY_cond, .name_repair = "minimal") %>%
+  setNames(c("x_cond", "y_cond")) %>%
+  rownames_to_column(var = "cell_ID") %>%
+  inner_join(Sample_meta %>% mutate(cell_ID = rownames(Sample_meta)), by = "cell_ID") %>% 
+  tibble::column_to_rownames("cell_ID") %>%
+  as.data.frame()
 
 Seurat_merged@meta.data <- Sample_meta
+Seurat_merged@meta.data$cell_ID <- rownames(Seurat_merged@meta.data)
+
+```
+
+```{r Condense vol 2}
+
+# xy_cond_within_group <- condenseXY_within_group(df = Sample_meta,
+#                                                 xcol = "x_slide_mm",
+#                                                 ycol = "y_slide_mm",
+#                                                 groupcol = "Group",
+#                                                 samplecol = "Sample",
+#                                                 fovcol = "fov",
+#                                                 condensefovs = TRUE,
+#                                                 condensetissues = TRUE,
+#                                                 eps = 1.5,
+#                                                 mindist = 0.1,
+#                                                 fovbuffer = 0.2,
+#                                                 tissueorder = NULL,
+#                                                 tissuebuffer = 0,          
+#                                                 widthheightratio = 4/3)
+# 
+# xy_cond_horiz <- xy_cond_groups_horizontal(meta = Sample_meta,
+#                                            xy_cond = xy_cond_within_group,
+#                                            groupcol = "Group",
+#                                            group_order = c("CART", "Control", "Conventional"),
+#                                            gap = 0.5)
+# 
+# 
+# Sample_meta <- xy_cond_horiz %>% 
+#   inner_join(y = xy_cond_within_group, by = c("cell_ID", "Group")) %>% 
+#   inner_join(y = Sample_meta, by = c("cell_ID", "Group"))
+# 
+# Sample_meta %>%
+#   mutate(Sample = factor(Sample)) %>%
+#   ggplot(., aes(x = x_cond, y = y_cond, colour = Sample)) +
+#   geom_point(size = 0.1, alpha = 0.6) +
+#   coord_equal() +
+#   facet_wrap(~ Slide_num) +
+#   theme_void() +
+#   guides(colour = guide_legend(override.aes = list(size = 2))) +
+#   labs(colour = "Sample", title = "FOVs by sample")
+# 
+# Seurat_merged@meta.data <- Sample_meta
+# Seurat_merged@meta.data$cell_ID <- Cells(Seurat_merged)
+# Seurat_merged@meta.data$cell_ID <- Cells(Seurat_merged)
+
 
 ```
 
 ```{r Lets get a look at the FOVs before the anotation}
 
-Seurat_merged@meta.data %>%
+Sample_meta %>%
   mutate(Sample = factor(Sample)) %>%
   transform(., x_px = x_slide_mm * 0.18,
                y_px = y_slide_mm * 0.18) %>% 
-  # ggplot(., aes(x = x_cond, y = y_cond, colour = Sample)) +
-  ggplot(., aes(x = x_px, y = y_px, colour = Sample)) +
+  ggplot(., aes(x = x_cond, y = y_cond, colour = Group)) +
+  # ggplot(., aes(x = x_px, y = y_px, colour = Sample)) +
   geom_point(size = 0.1, alpha = 0.6) +
   coord_equal() +
-  facet_wrap(~ Slide_num) +
+  # facet_wrap(~ Group) +
   theme_void() +
   guides(colour = guide_legend(override.aes = list(size = 2))) +
   labs(colour = "Sample", title = "FOVs by sample")
@@ -174,6 +231,8 @@ log_info(note = "Data before the filtering",
          "Original number of cells: %d \nOriginal number of genes %d",
          ncol(Seurat_merged), nrow(Seurat_merged))
 
+SaveSeuratRds(object = Seurat_merged, file = file.path(main_dir, "Data", "Edited_data", "Seurat_merged_temp.Rds"))
+
 ```
 
 ```{r Remove all objects aside from the seurat object}
@@ -181,9 +240,9 @@ log_info(note = "Data before the filtering",
 keep <- c("Seurat_merged", "log_file", "metrics", "qc_dir", "main_dir", "My_Functions.R")
 rm(list = setdiff(ls(envir = .GlobalEnv), keep), envir = .GlobalEnv)
 gc()
+source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
 
 ```
-
 
 ```{r Seurat quality control}
 
@@ -236,19 +295,17 @@ SaveSeuratRds(object = Seurat_merged, file = file.path(main_dir, "Data", "Edited
 Meta <- Seurat_merged@meta.data
 
 ## Filter based on geometric means of the areas ##
-Geom_mean_area <- Meta %>%
+Meta <- Meta %>%
+  rownames_to_column("cell_ID") %>%
   ## Get the cell area sizes ##
-  transmute(Area_um2 = Area.um2) %>%
-  filter(is.finite(Area_um2), Area_um2 > 0) %>%
   ## Calculate the geometric mean of the areas ##
-  summarize(Geom_mean = exp(mean(log(Area_um2), 
-                                 na.rm = TRUE))) %>%
-  ## Get the Geometric means ##
-  pull(Geom_mean)
-
-## Set the threshold for the cell filtering ##
-Threshold_area <- 5 * Geom_mean_area
-Area_um2_values <- Meta$Area.um2
+  ## Get the thresholds for each sample ##
+  mutate(Sample = as.factor(Sample)) %>%
+  group_by(Sample) %>%
+  mutate(Area_um2 = as.numeric(Area.um2),
+         Geom_mean_area = exp(mean(log(Area_um2[is.finite(Area_um2) & Area_um2 > 0]), na.rm=TRUE)),
+         Threshold_area = 5 * Geom_mean_area) %>%
+  ungroup() 
 
 ## Filter cells with less than 30 transcripts ##
 keep_cells <- Meta %>% 
@@ -258,12 +315,12 @@ keep_cells <- Meta %>%
     ## Filter cells with area less or equal to the threshold ##
     is.finite(Area_um2), Area_um2 > 0, Area_um2 <= Threshold_area,
     ## Filter cells with probability less than 0.8 ##
-    prob_insitu > 0.80,
+    # prob_insitu > 0.80,
     ## Filter cells with less than 50 features ##
     nFeature_RNA > 50,
     ## Filter cells with more than 2000 features ##
     nFeature_RNA < 2000) %>% 
-  rownames(.)
+  pull(cell_ID)
 
 ## Subset based on the cell filtering ##
 Seurat_filtered <- subset(Seurat_merged, cells = keep_cells)
@@ -285,18 +342,8 @@ Counts_assay <- Seurat_filtered[["RNA"]]
 Counts_assay <- subset(Counts_assay, features = keep_genes)
 Seurat_filtered[["RNA"]] <- Counts_assay
 
-cat(sprintf("Kept %d cells, %d genes\nArea threshold used: %.3f\n", 
-            ncol(Seurat_filtered), nrow(Seurat_filtered), Threshold_area))
-
-metrics <- read_csv(file = file.path(main_dir, "Results", "Reports", "preprocess_metrics.csv"))
-
-add_metric(Se_object = Seurat_filtered, 
-           step = "Filtering: Step 1", 
-           note = "Filtering based on geom mean area, transcript and gene count")
-
-log_info(note = "Filtering based on geom mean area, transcript and gene count",
-         "Kept %d cells\nKept %d genes\nArea threshold used: %.3f",
-         ncol(Seurat_filtered), nrow(Seurat_filtered), Threshold_area)
+cat(sprintf("Kept %d cells, %d genes\n", 
+            ncol(Seurat_filtered), nrow(Seurat_filtered)))
 
 ## Save Rds object to continue from here next session ##
 SaveSeuratRds(object = Seurat_filtered, file = file.path(main_dir, "Data", "Edited_data", "Seurat_filtered_step_1.Rds"))
@@ -352,28 +399,32 @@ ggsave(filename = file.path(qc_dir, "Post_Filtering/Scatter_Total_Counts_Feature
 ggsave(filename = file.path(qc_dir, "Post_Filtering/Scatter_MT_Counts_F_step_2.png"),
        plot = feat_p2, width = 9, height = 4, dpi = 300)
 
-add_metric(Se_object = Seurat_filtered, 
-           step = "Filtering: Step 2", 
-           note = "Filtering based on MT counts")
-
-log_info(note = "Filtering based on MT counts",
-         "Kept %d cells\nKept %d genes\n",
-         ncol(Seurat_filtered), nrow(Seurat_filtered))
+# add_metric(Se_object = Seurat_filtered, 
+#            step = "Filtering: Step 2", 
+#            note = "Filtering based on MT counts")
+# 
+# log_info(note = "Filtering based on MT counts",
+#          "Kept %d cells\nKept %d genes\n",
+#          ncol(Seurat_filtered), nrow(Seurat_filtered))
 
 ```
 
 ```{r Step 3. Background and negative probe quality control}
 
-Seurat_filtered@meta.data <- Seurat_filtered@meta.data %>%
+Meta <- Seurat_filtered@meta.data %>%
+  as.data.frame() 
+
+Meta <- Meta %>%
   ## Make sure all are numeric ##
   mutate(across(c(propNegative, nCount_negprobes, nCount_falsecode, Total_Counts),
                 ~ suppressWarnings(as.numeric(.))),
-        ## Compute background ratios ##
-        prop_negprobes_cnt = nCount_negprobes / Total_Counts,
-        prop_falsecode_cnt = nCount_falsecode / Total_Counts,
-        ## Final background metric ##
-        propNegative = coalesce(propNegative, prop_negprobes_cnt))
+         ## Compute background ratios ##
+         prop_negprobes_cnt = nCount_negprobes / Total_Counts,
+         prop_falsecode_cnt = nCount_falsecode / Total_Counts,
+         ## Final background metric ##
+         propNegative = coalesce(propNegative, prop_negprobes_cnt))
 
+## Visualise the negative probs ##
 bg_plots <- list()
 
 if ("propNegative" %in% colnames(Seurat_filtered@meta.data)) {
@@ -390,13 +441,14 @@ if ("prop_falsecode_cnt" %in% colnames(Seurat_filtered@meta.data)) {
 
 wrap_plots(bg_plots)
 
+## Stat summary per group ##
 Seurat_filtered@meta.data %>%
-  group_by(fov) %>%
+  group_by(Group) %>%
   summarise(n_cells = n(), 
             median_neg = median(propNegative, na.rm = TRUE),
             median_false = median(prop_falsecode_cnt, na.rm = TRUE),
-            median_counts = median(Total_Counts, na.rm = TRUE)) %>%
-  arrange(desc(median_neg))
+            median_counts = median(Total_Counts, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(median_neg)) 
 
 Seurat_filtered <- subset(Seurat_filtered, subset = (is.na(propNegative) | propNegative < 0.05) &
                             (is.na(prop_falsecode_cnt) | prop_falsecode_cnt < 0.05))
@@ -404,20 +456,24 @@ Seurat_filtered <- subset(Seurat_filtered, subset = (is.na(propNegative) | propN
 summary(Seurat_filtered@meta.data$propNegative)
 summary(Seurat_filtered@meta.data$prop_falsecode_cnt)
 
-thr_neg <- quantile(Seurat_filtered@meta.data$propNegative, 0.99, na.rm = TRUE)
-thr_fc <- quantile(Seurat_filtered@meta.data$prop_falsecode_cnt, 0.99, na.rm = TRUE)
-cat("Suggested thresholds -> propNegative:", thr_neg, " prop_falsecode_cnt:", thr_fc, "\n")
+Meta <- Meta %>%
+  group_by(Group) %>%
+  mutate(thr_neg = quantile(propNegative, 0.99, na.rm = TRUE),
+         thr_fc = quantile(prop_falsecode_cnt, 0.99, na.rm = TRUE)) %>%
+  ungroup() %>% 
+  mutate(thr_neg = ifelse(is.finite(thr_neg), thr_neg, 0.05),
+         thr_fc = ifelse(is.finite(thr_fc), thr_fc, 0.05))
 
-if (!is.finite(thr_neg)) thr_neg <- 0.05
-if (!is.finite(thr_fc))  thr_fc  <- 0.05
-
-keep_bg <- (is.na(Seurat_filtered@meta.data$propNegative) | 
-              Seurat_filtered@meta.data$propNegative < thr_neg) &
-           (is.na(Seurat_filtered@meta.data$prop_falsecode_cnt) | 
-              Seurat_filtered@meta.data$prop_falsecode_cnt < thr_fc)
+keep_bg <- with(Meta, (is.na(propNegative) | propNegative < thr_neg) &
+                      (is.na(prop_falsecode_cnt) | prop_falsecode_cnt < thr_fc))
 
 cat("Will keep", sum(keep_bg, na.rm = TRUE), "of", ncol(Seurat_filtered), "cells\n")
 stopifnot(sum(keep_bg, na.rm = TRUE) > 0)
+
+Meta <- Meta %>% 
+  column_to_rownames(var = "cell_ID")
+
+Seurat_filtered@meta.data <- Meta
 
 cells_keep <- colnames(Seurat_filtered)[keep_bg]
 Seurat_filtered <- subset(Seurat_filtered, cells = cells_keep)
@@ -438,16 +494,6 @@ VlnPlot(Seurat_filtered, features = intersect(c("propNegative", "prop_falsecode_
 
 ## Save Rds object to continue from here next session ##
 SaveSeuratRds(object = Seurat_filtered, file = file.path(main_dir, "Data", "Edited_data", "Seurat_filtered_step_3.Rds"))
-
-add_metric(Se_object = Seurat_filtered, 
-           step = "Filtering: Step 3", 
-           note = "Filtering based on negative probes")
-
-log_info(note = "Filtering based on negative probes",
-         "Kept %d cells\nKept %d genes\n",
-         ncol(Seurat_filtered), nrow(Seurat_filtered))
-
-# write_csv(metrics, "../Results/Reports/preprocess_metrics.csv")
 
 ```
 
@@ -540,16 +586,25 @@ ggsave(filename = file.path(qc_dir, "Post_Filtering/FOV_QC_plots_False_code_Frac
 ```{r Step 4. Filtering based off tissue outliers}
 
 # Seurat_filtered <- readRDS(file = paste0(main_dir, "Data/Edited_data/Seurat_filtered_step_3.Rds"))
-Metadata_filtered <- Seurat_filtered@meta.data
+
+# Seurat_filtered <- readRDS(file = paste0(main_dir, "Data/Edited_data", "Seurat_filtered_step_3.Rds"))
+Metadata_filtered <- Seurat_filtered@meta.data %>%
+  as.data.frame() %>%
+  rownames_to_column("cell_ID")
 
 ## Get the 95% quantiles to detect "outliers" ##
-x_rng <- quantile(Metadata_filtered$x_slide_mm, c(0.005, 0.995), na.rm = TRUE)
-y_rng <- quantile(Metadata_filtered$y_slide_mm, c(0.005, 0.995), na.rm = TRUE)
+Metadata_filtered <- Metadata_filtered %>%
+  group_by(Sample) %>%
+  mutate(x_low = quantile(x_slide_mm, 0.005, na.rm = TRUE),
+         x_high = quantile(x_slide_mm, 0.995, na.rm = TRUE),
+         y_low = quantile(y_slide_mm, 0.005, na.rm = TRUE),
+         y_high = quantile(y_slide_mm, 0.995, na.rm = TRUE)) %>%
+  ungroup()
 
 ## Detect which cells are outliers based on the posiiton ##
-keep_on_tissue <- with(Metadata_filtered,
-                       x_slide_mm >= x_rng[1] & x_slide_mm <= x_rng[2] &
-                       y_slide_mm >= y_rng[1] & y_slide_mm <= y_rng[2])
+keep_on_tissue <- with(Metadata_filtered, 
+                       x_slide_mm >= x_low & x_slide_mm <= x_high &
+                       y_slide_mm >= y_low & y_slide_mm <= y_high)
 
 ## Statistics to report the removed cell number ##
 n_before <- ncol(Seurat_filtered)
@@ -558,15 +613,7 @@ n_drop <- n_before - n_keep
 pct_drop <- round((100 * n_drop / n_before), 2)
 
 ## Perform the filtering ##
-Seurat_filtered <- subset(Seurat_filtered, cells = rownames(Metadata_filtered)[keep_on_tissue])
-
-add_metric(Se_object = Seurat_filtered, 
-           step = "Filtering: Step 4", 
-           note = "Filtering based on off tissue outliers")
-
-log_info(note = "Filtering based on off tissue outliers",
-         "Discarded %d cells\nKept %d cells\nPercentage of removed cells: %.2f%%",
-         n_drop, n_keep, pct_drop)
+Seurat_filtered <- subset(Seurat_filtered, cells = Metadata_filtered$cell_ID[keep_on_tissue])
 
 SaveSeuratRds(object = Seurat_filtered, file = file.path(main_dir, "Data", "Edited_data", "Seurat_filtered_step_4.Rds"))
 
@@ -615,11 +662,11 @@ Hist_total_exp <- ggplot(Counts_stats, aes(x = total_counts)) +
 Hist_prev <- ggplot(Counts_stats, aes(x = prevalence)) +
   geom_histogram(bins = 60, color = "black", fill = "pink") +
   geom_vline(xintercept = stats::median(Counts_stats$prevalence), linetype = 2) +
-  scale_x_continuous(limits = c(0, 1),
-                     breaks = x_breaks,
-                     labels = lbl_cells_percent) +
+  # scale_x_continuous(limits = c(0, 1),
+  #                    breaks = x_breaks,
+  #                    labels = lbl_cells_percent) +
   labs(title = "Gene detection prevalence (fraction of cells)",
-       x = "Number of cells",
+       x = "Percentage of cells",
        y = "Number of genes")
 
 g_p6 <- Hist_total_exp + Hist_prev  

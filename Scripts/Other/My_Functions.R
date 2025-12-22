@@ -3,6 +3,9 @@ Init_project <- function(main_dir) {
   ## Normalize path ##
   main_dir <- normalizePath(main_dir, mustWork = FALSE)
   
+  ## Set working directory ##
+  setwd(dir = main_dir)
+  
   ## Build paths ##
   log_file <- file.path(main_dir, "Results", "Reports", "preprocess_log.txt")
   qc_dir <- file.path(main_dir, "Results", "QC_Images")
@@ -132,13 +135,6 @@ Load_My_Rds <- function(dir, file_pattern = "(?i)\\.rds$", slide_regex = "\\.Sli
                                     paste0("SeO_", seq_along(objs)), 
                                     paste0("SeO_", slide_n)), 
                              sep = "_dup"))
-}
-
-
-## Function add percent labels in the quality control figures ##
-lbl_cells_percent <- function(b) {
-  paste0(format(round(b * ncol(Counts_filtered)), 
-                big.mark = ","), " (", scales::percent(b, accuracy = 1), ")")
 }
 
 ## Function to visualise cell annotation results ##

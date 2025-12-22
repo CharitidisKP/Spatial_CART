@@ -32,7 +32,6 @@ options(max.print = 200)
 library(tidyverse)
 library(Seurat)
 library(SeuratObject)
-library(Matrix)
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
 Init_project("~/P_lab/Spatial_CART/")
 
@@ -50,8 +49,10 @@ Seurat_filtered <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Se
 
 ```{r Normalise and scale the seurat object counts}
 
-Seurat_norm <- NormalizeData(Seurat_filtered, normalization.method = "LogNormalize",
-                                scale.factor = 1e4)
+DefaultAssay(Seurat_filtered) <- "RNA"
+Seurat_norm <- NormalizeData(Seurat_filtered, 
+                             normalization.method = "LogNormalize",
+                             scale.factor = 1e4)
 
 Seurat_norm <- FindVariableFeatures(Seurat_norm, selection.method = "vst", nfeatures = 3000)
 
@@ -59,56 +60,416 @@ Seurat_norm <- ScaleData(Seurat_norm, features = VariableFeatures(Seurat_norm))
 
 ```
 
-```{r PCA prep}
+```{r PCA prep - Log transformed data}
 
-Seurat_norm <- RunPCA(Seurat_norm, features = VariableFeatures(object = Seurat_norm), npcs = 50)
+DefaultAssay(Seurat_norm) <- "RNA"
 
-ElbowPlot(Seurat_norm, ndims = 50, reduction = "pca")
+Seurat_norm <- RunPCA(Seurat_norm, features = VariableFeatures(object = Seurat_norm), npcs = 50, reduction.name = "RNA_PCA")
 
-DimPlot(Seurat_norm, reduction = "pca") + 
-  NoLegend()
+ElbowPlot(Seurat_norm, ndims = 50, reduction = "RNA_PCA")
 
-VizDimLoadings(Seurat_norm, dims = 1:2, reduction = "pca")
+## Choose which PCs to plot ##
+choose_PCs <- c(1, 2)
+
+PCA_Log_norm_plot <- DimPlot(Seurat_norm, reduction = "RNA_PCA", group.by = "Group", dims = choose_PCs) +
+  labs(title = NULL, 
+       x = paste0("PC ", choose_PCs[1]), 
+       y = paste0("PC ", choose_PCs[2])) +                 
+  plot_annotation(title = "PCA using the log normalised values", 
+                  subtitle = "Without performing batch correction") +
+  theme(legend.title = element_blank())
+
+VizDimLoadings(Seurat_norm, dims = 1:2, reduction = "RNA_PCA")
 
 ## Retrieve standard deviations from the PCA ##
-stdev <- Seurat_norm[["pca"]]@stdev
+stdev <- Stdev(Seurat_norm, reduction = "RNA_PCA")
 
 ## Convert to variance explained per PC ##
-var_explained <- stdev^2 / sum(stdev^2)
+var_explained <- stdev^2 / sum(stdev^2) * 100
 
 ## Cumulative variance explained ##
 cum_var <- cumsum(var_explained)
 
 ## Pick the number of PCs required to explain 50% of the variance ##
 ## Change this number depending on the downstream analysis ##
-num_pcs <- which(cum_var >= 0.60)[1]
+pc_by_cum_var <- which(cum_var >= 60)[1]
 
 ## Combine the minimum cumulative variance with the elbow plot ##
-elbow_num <- which(diff(stdev) > -0.1)[1]
-n_pcs_use <- min(num_pcs, elbow_num)
+
+drops <- var_explained[-length(var_explained)] - var_explained[-1]
+pc_by_drop <- max(which(drops > 0.15)) + 1
+
+pc_use_max <- max(pc_by_cum_var, pc_by_drop)
 
 ## Print the selected number ##
-cat("Using", n_pcs_use, "PCs (", round(cum_var[n_pcs_use] * 100, 1), "% variance)\n")
+cat("Using", pc_use_max, "PCs (", round(cum_var[pc_use_max], 1), "% variance)\n")
 
 ```
 
-```{r Neighbors and clusters}
+```{r PCA plots - Standard deviation and Variance}
 
-Seurat_norm <- FindNeighbors(Seurat_norm, dims = 1:num_pcs)
+Elbow_df_basic_PCA <- data.frame(PC = seq_along(stdev),
+                                 stdev = stdev,
+                                 var_explained = var_explained,
+                                 cum_var = cum_var)
 
-Seurat_norm <- FindClusters(Seurat_norm, 
-                              resolution = c(0.25, 0.5, 0.75, 1.0))
+Elbow_sd_basic_PCA_plot <- ggplot(Elbow_df_basic_PCA, aes(x = PC, y = stdev)) +
+  geom_line() +
+  geom_point(size = 1.2) +
+  geom_vline(xintercept = pc_use_max, linetype = 2) +
+  labs(title = "PCA elbow (standard deviation)", x = "PC", y = "Standard Deviation") +
+  theme_classic(base_size = 12)
 
-Idents(Seurat_norm) <- "RNA_snn_res.0.5"
+Elbow_cumv_basic_PCA_plot <- ggplot(Elbow_df_basic_PCA, aes(x = PC, y = cum_var)) +
+  geom_line() +
+  geom_point(size = 1.2) +
+  geom_hline(yintercept = 60, linetype = 3) +
+  geom_vline(xintercept = pc_use_max, linetype = 2) +
+  labs(title = "Cumulative variance explained", x = "PC", y = "Cumulative variance") +
+  theme_classic(base_size = 12)
+
+PCA_basic_stats_plot <- Elbow_sd_basic_PCA_plot / Elbow_cumv_basic_PCA_plot
+
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/LOG_Transformed/PCA_basic_stats.png"),
+       plot = PCA_basic_stats_plot, width = 12, height = 8, dpi = 300, device = "png")
+
+```
+
+```{r PCA plots - Log transformed}
+
+## Repeated choice for the actual plots
+choose_PCs <- c(1, 2)
+
+PCA_basic_plot <- DimPlot(Seurat_norm, 
+                          reduction = "RNA_PCA",
+                          group.by = "Group",
+                          split.by = "Group",
+                          pt.size = 1, 
+                          dims = choose_PCs) +
+  theme_minimal(base_size = 12) +
+  labs(title = "PCA plots: Split by treatment method", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("PC ", choose_PCs[1]), 
+       y = paste0("PC ", choose_PCs[2])) +
+  theme(panel.grid.minor = element_blank())
+
+PCA_basic_plot_grouped <- DimPlot(Seurat_norm,
+                                  reduction = "RNA_PCA",
+                                  group.by = "Group",
+                                  pt.size = 1, 
+                                  dims = choose_PCs) +
+  theme_minimal(base_size = 12) +
+  labs(title = "PCA plots: Treatment methods grouped", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("PC ", choose_PCs[1]), 
+       y = paste0("PC ", choose_PCs[2])) +
+  theme(panel.grid.minor = element_blank())
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/LOG_Transformed/", 
+                            "PCA_basic_PCs_",choose_PCs[1], "_", choose_PCs[2], ".png")),
+       plot = PCA_basic_plot, width = 12, height = 8, dpi = 300, device = "png")
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/LOG_Transformed/", 
+                            "PCA_basic_grouped_PCs_",choose_PCs[1], "_", choose_PCs[2], ".png")),
+       plot = PCA_basic_plot_grouped, width = 12, height = 8, dpi = 300, device = "png")
+
+
+
+```
+
+```{r Alternative normalisation - SCTransform}
+
+Seurat_norm <- SCTransform(Seurat_norm, 
+                           assay = "RNA", 
+                           verbose = TRUE)
+
+```
+
+```{r PCA prep - SCT data}
+
+DefaultAssay(Seurat_norm) <- "SCT"
+
+Seurat_norm <- RunPCA(Seurat_norm, features = VariableFeatures(object = Seurat_norm), 
+                      npcs = 50, reduction.name = "SCT_PCA", reduction.key = "SCT_PC")
+
+ElbowPlot(Seurat_norm, ndims = 50, reduction = "SCT_PCA")
+
+## Choose which PCs to plot ##
+choose_PCs <- c(1, 2)
+
+PCA_SCT_norm_plot <- DimPlot(Seurat_norm, reduction = "SCT_PCA", group.by = "Group", dims = choose_PCs) +
+  labs(title = NULL, 
+       x = paste0("PC ", choose_PCs[1]), 
+       y = paste0("PC ", choose_PCs[2])) +                 
+  plot_annotation(title = "PCA using the SCT corrected values", 
+                  subtitle = "Without performing batch correction") +
+  theme(legend.title = element_blank())
+
+VizDimLoadings(Seurat_norm, dims = 1:2, reduction = "SCT_PCA")
+
+## Retrieve standard deviations from the PCA ##
+stdev_SCT <- Stdev(Seurat_norm, reduction = "SCT_PCA")
+
+## Convert to variance explained per PC ##
+var_explained_SCT <- stdev_SCT^2 / sum(stdev_SCT^2) * 100
+
+## Cumulative variance explained ##
+cum_var_SCT <- cumsum(var_explained_SCT)
+
+## Pick the number of PCs required to explain 50% of the variance ##
+## Change this number depending on the downstream analysis ##
+pc_by_cum_var_SCT <- which(cum_var_SCT >= 60)[1]
+
+## Combine the minimum cumulative variance with the elbow plot ##
+
+drops_SCT <- var_explained_SCT[-length(var_explained_SCT)] - var_explained_SCT[-1]
+pc_by_drop_SCT <- max(which(drops_SCT > 0.15)) + 1
+
+pc_use_max_SCT <- max(pc_by_cum_var_SCT, pc_by_drop_SCT)
+
+## Print the selected number ##
+cat("Using", pc_use_max_SCT, "PCs (", round(cum_var_SCT[pc_use_max_SCT], 1), "% variance)\n")
+
+```
+
+```{r PCA plots - SCT - Standard deviation and Variance}
+
+Elbow_df_SCT_basic_PCA <- data.frame(PC = seq_along(stdev_SCT),
+                                     stdev_SCT = stdev_SCT,
+                                     var_explained_SCT = var_explained_SCT,
+                                     cum_var_SCT = cum_var_SCT)
+
+Elbow_sd_SCT_PCA_plot <- ggplot(Elbow_df_SCT_basic_PCA, aes(x = PC, y = stdev_SCT)) +
+  geom_line() +
+  geom_point(size = 1.2) +
+  geom_vline(xintercept = pc_use_max_SCT, linetype = 2) +
+  labs(title = "PCA elbow (standard deviation)", 
+       subtitle = "After SCT correction",
+       x = "PC", y = "Standard Deviation") +
+  theme_classic(base_size = 12)
+
+Elbow_cumv_SCT_PCA_plot <- ggplot(Elbow_df_SCT_basic_PCA, aes(x = PC, y = cum_var_SCT)) +
+  geom_line() +
+  geom_point(size = 1.2) +
+  geom_hline(yintercept = 60, linetype = 3) +
+  geom_vline(xintercept = pc_use_max_SCT, linetype = 2) +
+  labs(title = "Cumulative variance explained", 
+       subtitle = "After SCT correction",
+       x = "PC", y = "Cumulative variance") +
+  theme_classic(base_size = 12)
+
+PCA_SCT_stats_plot <- Elbow_sd_SCT_PCA_plot / Elbow_cumv_SCT_PCA_plot
+
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/SCT_Transformed/PCA_SCT_stats.png"),
+       plot = PCA_SCT_stats_plot, width = 12, height = 8, dpi = 300, device = "png")
+
+```
+
+```{r PCA plots - SCT transformed}
+
+## Repeated choice for the actual plots
+choose_PCs <- c(1, 2)
+
+PCA_SCT_plot <- DimPlot(Seurat_norm, 
+                          reduction = "SCT_PCA",
+                          group.by = "Group",
+                          split.by = "Group",
+                          pt.size = 1, 
+                          dims = choose_PCs) +
+  theme_minimal(base_size = 12) +
+  labs(title = "PCA plots after SCT correction: Split by treatment method", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("PC ", choose_PCs[1]), 
+       y = paste0("PC ", choose_PCs[2])) +
+  theme(panel.grid.minor = element_blank())
+
+PCA_SCT_plot_grouped <- DimPlot(Seurat_norm,
+                                  reduction = "SCT_PCA",
+                                  group.by = "Group",
+                                  pt.size = 1, 
+                                  dims = choose_PCs) +
+  theme_minimal(base_size = 12) +
+  labs(title = "PCA plots after SCT correction: Treatment methods grouped", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("PC ", choose_PCs[1]), 
+       y = paste0("PC ", choose_PCs[2])) +
+  theme(panel.grid.minor = element_blank())
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/SCT_Transformed/", 
+                            "PCA_SCT_PCs_",choose_PCs[1], "_", choose_PCs[2], ".png")),
+       plot = PCA_SCT_plot, width = 12, height = 8, dpi = 300, device = "png")
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/SCT_Transformed/", 
+                            "PCA_SCT_grouped_PCs_",choose_PCs[1], "_", choose_PCs[2], ".png")),
+       plot = PCA_SCT_plot_grouped, width = 12, height = 8, dpi = 300, device = "png")
+
+```
+
+```{r Save the SDs and Variance for the two methods}
+
+PCA_stats <- Elbow_df_basic_PCA %>% 
+  inner_join(Elbow_df_SCT_basic_PCA, by = "PC")
+
+write_csv(x = PCA_stats, file = file.path(main_dir, "Results/Dimensionality_Reductions/Stats/PCA_stats.csv"))
+
+```
+
+```{r Neighbors and clusters - Log transformed}
+
+DefaultAssay(Seurat_norm) <- "RNA"
+
+Seurat_norm <- FindNeighbors(Seurat_norm, reduction = "RNA_PCA", 
+                             dims = 1:pc_use_max, 
+                             nn.method = "annoy", 
+                             annoy.metric = "euclidean", 
+                             n.trees = 50, 
+                             graph.name = c("RNA_nn", "RNA_snn"))
+
+DefaultAssay(Seurat_norm) <- "SCT"
+
+Seurat_norm <- FindNeighbors(Seurat_norm, reduction = "SCT_PCA", 
+                             dims = 1:pc_use_max, 
+                             nn.method = "annoy", 
+                             annoy.metric = "euclidean", 
+                             n.trees = 50, 
+                             graph.name = c("SCT_nn", "SCT_snn"))
+
+resolutions <- c(0.25, 0.5, 0.75, 1.0)
+
+for (r in resolutions) {
+  Seurat_norm <- FindClusters(Seurat_norm,
+                              graph.name = "RNA_snn",
+                              resolution = r,
+                              algorithm = 1,
+                              random.seed = 1511,
+                              cluster.name = paste0("RNA_Cluster_res.", r))
+}
+
+for (r in resolutions) {
+  Seurat_norm <- FindClusters(Seurat_norm,
+                              graph.name = "SCT_snn",
+                              resolution = r,
+                              algorithm = 1,
+                              random.seed = 1511,
+                              cluster.name = paste0("SCT_Cluster_res.", r))
+}
+
+
+Idents(Seurat_norm) <- ""
 
 ```
 
 ```{r UMAP prep}
 
-Seurat_norm <- RunUMAP(Seurat_norm, dims = 1:num_pcs)
+DefaultAssay(Seurat_norm) <- "RNA"
+Seurat_norm <- RunUMAP(Seurat_norm, 
+                       reduction = "RNA_PCA",
+                       dims = 1:pc_use_max,
+                       reduction.name = "UMAP_RNA")
 
-DimPlot(Seurat_norm, reduction = "umap", group.by = "fov")
+# SCT UMAP (from SCT_PCA)
+DefaultAssay(Seurat_norm) <- "SCT"
+Seurat_norm <- RunUMAP(Seurat_norm,
+                       reduction = "SCT_PCA",
+                       dims = 1:pc_use_max_SCT, 
+                       reduction.name = "UMAP_SCT")
 
+```
+
+```{r UMAP plots - Log normalised counts}
+
+chooseUMAP <- c(1, 2)
+
+UMAP_basic_plot <- DimPlot(Seurat_norm, 
+                           reduction = "UMAP_RNA",
+                           group.by = "Group",
+                           split.by = "Group",
+                           pt.size = 1, 
+                           dims = chooseUMAP) +
+  theme_minimal(base_size = 12) +
+  labs(title = "UMAP plots: Split by treatment method", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("UMAP ", chooseUMAP[1]), 
+       y = paste0("UMAP ", chooseUMAP[2])) +
+  theme(panel.grid.minor = element_blank())
+
+UMAP_basic_plot_grouped <- DimPlot(Seurat_norm,
+                                   reduction = "UMAP_RNA",
+                                   group.by = "Group",
+                                   pt.size = 1, 
+                                   dims = chooseUMAP) +
+  theme_minimal(base_size = 12) +
+  labs(title = "UMAP plots: Treatment methods grouped", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("UMAP ", chooseUMAP[1]), 
+       y = paste0("UMAP ", chooseUMAP[2])) +
+  theme(panel.grid.minor = element_blank())
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/LOG_Transformed/", 
+                            "UMAP_basic_UMAPs_",chooseUMAP[1], "_", chooseUMAP[2], ".png")),
+       plot = UMAP_basic_plot, width = 16, height = 6, dpi = 300, device = "png")
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/LOG_Transformed/", 
+                            "UMAP_basic_grouped_UMAPs_",chooseUMAP[1], "_", chooseUMAP[2], ".png")),
+       plot = UMAP_basic_plot_grouped, width = 12, height = 8, dpi = 300, device = "png")
+
+```
+
+```{r UMAP plots - SCT corrected counts}
+
+chooseUMAP <- c(1, 2)
+
+UMAP_SCT_plot <- DimPlot(Seurat_norm, 
+                         reduction = "UMAP_SCT",
+                         group.by = "Group",
+                         split.by = "Group",
+                         pt.size = 1, 
+                         dims = chooseUMAP) +
+  theme_minimal(base_size = 12) +
+  labs(title = "UMAP plots after SCT correction: Split by treatment method", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("UMAP ", chooseUMAP[1]), 
+       y = paste0("UMAP ", chooseUMAP[2])) +
+  theme(panel.grid.minor = element_blank())
+
+UMAP_SCT_plot_grouped <- DimPlot(Seurat_norm,
+                                 reduction = "UMAP_SCT",
+                                 group.by = "Group",
+                                 pt.size = 1, 
+                                 dims = chooseUMAP) +
+  theme_minimal(base_size = 12) +
+  labs(title = "UMAP plots after SCT correction: Treatment methods grouped", 
+       subtitle = "Without performing batch correction", 
+       x = paste0("UMAP ", chooseUMAP[1]), 
+       y = paste0("UMAP ", chooseUMAP[2])) +
+  theme(panel.grid.minor = element_blank())
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/SCT_Transformed/", 
+                            "UMAP_SCT_UMAPs_",chooseUMAP[1], "_", chooseUMAP[2], ".png")),
+       plot = UMAP_SCT_plot, width = 16, height = 6, dpi = 300, device = "png")
+
+ggsave(filename = file.path(main_dir, 
+                            paste0("Results/Dimensionality_Reductions/SCT_Transformed/", 
+                            "UMAP_SCT_grouped_UMAPs_",chooseUMAP[1], "_", chooseUMAP[2], ".png")),
+       plot = UMAP_SCT_plot_grouped, width = 12, height = 8, dpi = 300, device = "png")
+
+```
+
+```{r Spatially variable features}
+
+# seurat_obj <- FindSpatiallyVariableFeatures(
+#   seurat_obj,
+#   assay = "SCT",
+#   selection.method = "markvariogram",
+#   nfeatures = 2000
+# )
 ```
 
 ```{r Save the normalised seurat object with PCAs and UMAPs}
