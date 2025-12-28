@@ -32,7 +32,6 @@ options(max.print = 200)
 library(tidyverse)
 library(Seurat)
 library(SeuratObject)
-library(Matrix)
 library(harmony)
 source(file = "~/P_lab/Spatial_CART/Scripts/Other/My_Functions.R")
 Init_project("~/P_lab/Spatial_CART/")
@@ -44,192 +43,321 @@ Init_project("~/P_lab/Spatial_CART/")
 ## Change this one you have finalised a merged object ##
 Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_normalised.Rds"))
 
-Seurat_obj@meta.data <- Seurat_obj@meta.data %>% 
-  mutate(Slide_num = str_extract(Run_Tissue_name, "(?<=Slide)\\d+"), 
-         ## Contained here i didn't have to use the regex ##
-         # Slide = paste0("Slide_", slide_ID_numeric),
-         Slide = paste0("Slide_", Slide_num))
-
 ```
 
-```{r}
+```{r Check dimensionality reductions before batch normalisation}
 
-Umap_pre_harmony <- DimPlot(Seurat_obj, reduction = "umap", group.by = "Slide") +
-  labs(title = NULL) +                     
-  plot_annotation(title = "UMAP before batch correction by slide") +
-  theme(legend.title = element_blank())
+Umap_pre_harmony <- DimPlot(Seurat_obj, reduction = "UMAP_RNA", group.by = "Slide_num") +
+  labs(title = "UMAP before batch correction by slide", 
+                  subtitle = "UMAP based on the Log normalised counts", 
+                  x = "UMAP 1", 
+                  y = "UMAP 2") +                     
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
 
-PCA_pre_harmony <- DimPlot(Seurat_obj, reduction = "pca", group.by = "Slide") +
-  labs(title = NULL) +                     
-  plot_annotation(title = "PCA before batch correction by slide") +
-  theme(legend.title = element_blank())
+Umap_pre_harmony_SCT <- DimPlot(Seurat_obj, reduction = "UMAP_SCT", group.by = "Slide_num") +
+  labs(title = "UMAP before batch correction by slide", 
+                  subtitle = "UMAP based on the SCT corrected counts", 
+                  x = "UMAP 1", 
+                  y = "UMAP 2") +                     
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
 
-Vln_pre_harmony <- VlnPlot(Seurat_obj, features = c("nFeature_RNA", "nCount_RNA"), group.by = "Slide", pt.size = 0) +
-  # labs(title = NULL) +                     
-  plot_annotation(title = "Vln plot before batch correction by slide") +
-  theme(legend.title = element_blank())
+PCA_pre_harmony <- DimPlot(Seurat_obj, reduction = "RNA_PCA", group.by = "Slide_num") +
+  labs(title = "PCA before batch correction by slide", 
+                  subtitle = "PCA based on the Log normalised counts", 
+                  x = "PCA 1", 
+                  y = "PCA 2") +      
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
 
-Umap_pre_harmony_cell_types <- DimPlot(Seurat_obj, reduction = "umap", group.by = "RNA_Export_Cell.Typing.InSituType.1_1_clusters", label = TRUE) +
-  labs(title = NULL) +                     
-  plot_annotation(title = "UMAP before batch correction by celltype") +
-  theme(legend.title = element_blank())
+PCA_pre_harmony_SCT <- DimPlot(Seurat_obj, reduction = "SCT_PCA", group.by = "Slide_num") +
+  labs(title = "PCA before batch correction by slide", 
+                  subtitle = "PCA based on the SCT corrected counts", 
+                  x = "PCA 1", 
+                  y = "PCA 2") +      
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
 
-# Seurat_obj %>% 
-#   SplitObject(split.by = "Slide") %>%
-#   lapply(function(obj) {
-#     rowMeans(GetAssayData(obj, slot = "counts") > 0)
-#   })
+Vln_pre_harmony <- VlnPlot(Seurat_obj, features = c("nFeature_RNA", "nCount_RNA"), group.by = "Slide_num", pt.size = 0) &
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "plain")) &
+  plot_annotation(title = "Violin plot before batch correction by slide", 
+                  theme = theme(plot.title = element_text(face = "bold"))) 
+
+Vln_pre_harmony_SCT <- VlnPlot(Seurat_obj, features = c("nFeature_SCT", "nCount_SCT"), group.by = "Slide_num", pt.size = 0) &
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "plain")) &
+  plot_annotation(title = "Violin plot before batch correction by slide", 
+                  subtitle = "SCT corrected counts", 
+                  theme = theme(plot.title = element_text(face = "bold"))) 
+
+## Use this function in case you want transparent backgrounds ##
+# Transparent(Vln_pre_harmony_SCT)
 
 Umap_pre_harmony
+Umap_pre_harmony_SCT
 PCA_pre_harmony
+PCA_pre_harmony_SCT
 Vln_pre_harmony
+Vln_pre_harmony_SCT
 
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_pre_batch_per_slide.png"),
-       plot = Umap_pre_harmony, width = 6, height = 4, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/Norm_pre_Batch/UMAP_pre_batch_per_slide.png"),
+       plot = Umap_pre_harmony, width = 6, height = 4, dpi = 300, device = "png")
 
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/PCA_pre_batch_per_slide.png"),
-       plot = PCA_pre_harmony, width = 6, height = 4, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/Norm_pre_Batch/PCA_pre_batch_per_slide.png"),
+       plot = PCA_pre_harmony, width = 6, height = 4, dpi = 300, device = "png")
 
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/Vln_pre_batch_per_slide.png"),
-       plot = Vln_pre_harmony, width = 12, height = 10, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/Norm_pre_Batch/Vln_pre_batch_per_slide.png"),
+       plot = Vln_pre_harmony, width = 12, height = 10, dpi = 300, device = "png")
 
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_pre_batch_per_celltype.png"),
-       plot = Umap_pre_harmony_cell_types, width = 16, height = 8, dpi = 300)
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/Norm_pre_Batch/UMAP_pre_batch_per_slide_SCT.png"),
+       plot = Umap_pre_harmony_SCT, width = 6, height = 4, dpi = 300, device = ragg::agg_png)
+
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/Norm_pre_Batch/PCA_pre_batch_per_slide_SCT.png"),
+       plot = PCA_pre_harmony_SCT, width = 6, height = 4, dpi = 300, device = "png")
+
+ggsave(filename = file.path(main_dir, "Results/Dimensionality_Reductions/Norm_pre_Batch/Vln_pre_batch_per_slide_SCT.png"),
+       plot = Vln_pre_harmony_SCT, width = 12, height = 10, dpi = 300, device = "png")
+
 
 ```
 
 ```{r QC to see if batch effect exists}
 
-tab_pre_harmony <- table(Seurat_obj$seurat_clusters, Seurat_obj$Slide)
+# tab_pre_harmony <- table(Seurat_obj$seurat_clusters, Seurat_obj$Slide)
+# 
+# prop_tab_pre_harmony <- prop.table(tab_pre_harmony, margin = 1)
+# round(prop_tab_pre_harmony, 2)
+# 
+# df_pre_harmony <- as.data.frame(tab_pre_harmony)
+# colnames(df_pre_harmony) <- c("Cluster", "Slide", "Freq")
+# 
+# ggplot(df_pre_harmony, aes(x = Cluster, y = Freq, fill = Slide)) +
+#   geom_bar(stat = "identity", position = "fill") +
+#   ylab("Proportion within cluster") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# emb_pre_harmony <- Embeddings(Seurat_obj, reduction = "pca")
+# 
+# # function to get R² of Slide for each dimension
+# get_r2 <- function(x, batch) {
+#   summary(lm(x ~ batch))$adj.r.squared
+# }
+# 
+# n_dims <- min(10, ncol(emb_pre_harmony))
+# 
+# r2s_pre_harmony <- apply(emb_pre_harmony[, seq_len(n_dims), drop = FALSE], 
+#                          2, get_r2, batch = factor(Seurat_obj$Slide)) 
+# 
+# r2s_pre_harmony_df <- r2s_pre_harmony %>% 
+#   tibble(PC = factor(names(r2s_pre_harmony), levels = names(r2s_pre_harmony)), 
+#          R2 = as.numeric(r2s_pre_harmony)) %>% 
+#   select(PC, R2)
+# 
+# R2s_barplot_pre_batch <- ggplot(r2s_pre_harmony_df, aes(x = PC, y = R2)) + 
+#   geom_col() +
+#   labs(title = expression(R^2 ~ "of slide per PC before batch correction"), 
+#        x = "Principal component", y = expression("Adjusted" ~ R^2)) +
+#   theme_bw() 
+# 
+# ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/R2s_barplot_pre_batch.png"),
+#        plot = R2s_barplot_pre_batch, width = 16, height = 8, dpi = 300)
 
-prop_tab_pre_harmony <- prop.table(tab_pre_harmony, margin = 1)
-round(prop_tab_pre_harmony, 2)
+```
 
-df_pre_harmony <- as.data.frame(tab_pre_harmony)
-colnames(df_pre_harmony) <- c("Cluster", "Slide", "Freq")
+```{r Batch QC - Through the function}
 
-ggplot(df_pre_harmony, aes(x = Cluster, y = Freq, fill = Slide)) +
-  geom_bar(stat = "identity", position = "fill") +
-  ylab("Proportion within cluster") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+res_rna <- AssessClusterBatch(Seurat_obj,
+                              cluster_col = "RNA_Cluster_res.0.25",
+                              group_col = "Slide",
+                              reduction = "RNA_PCA",
+                              dims_use = 1:10,
+                              save = TRUE,
+                              out_dir = file.path(main_dir, "Results/QC_Images/Batch_QC"), 
+                              file_prefix = "LOG_by_Slide")
 
-emb_pre_harmony <- Embeddings(Seurat_obj, reduction = "pca")
+res_sct <- AssessClusterBatch(Seurat_obj,
+                              cluster_col = "SCT_Cluster_res.0.25",
+                              group_col = "Slide",
+                              reduction = "SCT_PCA",
+                              dims_use = 1:10, 
+                              save = TRUE,
+                              out_dir = file.path(main_dir, "Results/QC_Images/Batch_QC"), 
+                              file_prefix = "SCT_by_Slide")
 
-# function to get R² of Slide for each dimension
-get_r2 <- function(x, batch) {
-  summary(lm(x ~ batch))$adj.r.squared
+```
+
+```{r Make a batch column}
+
+Seurat_obj$Batch <- case_when(Seurat_obj$Slide_num %in% c(1, 2) ~ "Batch_1", 
+                              Seurat_obj$Slide_num %in% c(3, 4, 31, 32) ~ "Batch_2", 
+                              TRUE ~ NA_character_) %>% 
+  factor()
+
+```
+
+```{r Harmony on the RNA counts PCA}
+
+Seurat_obj <- RunHarmony(Seurat_obj,
+                         group.by.vars = "Batch",
+                         reduction.use = "RNA_PCA",
+                         dims.use = 1:30,
+                         reduction.save = "Harmony_RNA",
+                         project.dim = TRUE)
+
+Seurat_obj <- FindNeighbors(Seurat_obj, 
+                            reduction = "Harmony_RNA", 
+                            dims = 1:30,
+                            graph.name = c("RNA_harmony_nn", "RNA_harmony_snn"))
+
+resolutions <- c(0.25, 0.5, 0.75, 1.0)
+
+for (r in resolutions) {
+  Seurat_obj <- FindClusters(Seurat_obj,
+                              graph.name = "RNA_harmony_snn",
+                              resolution = r,
+                              algorithm = 1,
+                              random.seed = 1511,
+                              cluster.name = paste0("RNA_Harmony_Cluster_res.", r))
 }
 
-n_dims <- min(10, ncol(emb_pre_harmony))
-
-r2s_pre_harmony <- apply(emb_pre_harmony[, seq_len(n_dims), drop = FALSE], 
-                         2, get_r2, batch = factor(Seurat_obj$Slide)) 
-
-r2s_pre_harmony_df <- r2s_pre_harmony %>% 
-  tibble(PC = factor(names(r2s_pre_harmony), levels = names(r2s_pre_harmony)), 
-         R2 = as.numeric(r2s_pre_harmony)) %>% 
-  select(PC, R2)
-
-R2s_barplot_pre_batch <- ggplot(r2s_pre_harmony_df, aes(x = PC, y = R2)) + 
-  geom_col() +
-  labs(title = expression(R^2 ~ "of slide per PC before batch correction"), 
-       x = "Principal component", y = expression("Adjusted" ~ R^2)) +
-  theme_bw() 
-
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/R2s_barplot_pre_batch.png"),
-       plot = R2s_barplot_pre_batch, width = 16, height = 8, dpi = 300)
+Seurat_obj <- RunUMAP(Seurat_obj, 
+                      reduction = "Harmony_RNA", 
+                      dims = 1:30,
+                      reduction.name = "UMAP_RNA_Harmony")
 
 ```
 
-```{r}
+```{r Harmony on the SCT counts PCA}
 
-Seurat_obj <- RunHarmony(Seurat_obj, group.by.vars = "Slide")
+Seurat_obj <- RunHarmony(Seurat_obj,
+                         group.by.vars = "Batch",
+                         reduction.use = "SCT_PCA",
+                         dims.use = 1:30,
+                         reduction.save = "Harmony_SCT",
+                         project.dim = TRUE)
 
-Seurat_obj <- RunUMAP(Seurat_obj, reduction = "harmony", dims = 1:30)
-Seurat_obj <- FindNeighbors(Seurat_obj, reduction = "harmony", dims = 1:30)
-Seurat_obj <- FindClusters(Seurat_obj, resolution = c(0.25, 0.5, 0.75, 1.0))
+Seurat_obj <- FindNeighbors(Seurat_obj, 
+                            reduction = "Harmony_SCT", 
+                            dims = 1:30,
+                            graph.name = c("SCT_harmony_nn", "SCT_harmony_snn"))
 
-Umap_post_harmony_per_slide <- DimPlot(Seurat_obj, reduction = "umap", group.by = "Slide") +
-  labs(title = NULL) +                     
-  plot_annotation(title = "UMAP after batch correction by slide") +
-  theme(legend.title = element_blank())
-  
-Umap_post_harmony_per_cluster <- DimPlot(Seurat_obj, group.by = "seurat_clusters") +
-  labs(title = NULL) +                     
-  plot_annotation(title = "UMAP after batch correction by cluster") +
-  theme(legend.title = element_blank())
+resolutions <- c(0.25, 0.5, 0.75, 1.0)
 
-Umap_post_harmony_per_slide
-Umap_post_harmony_per_cluster
-
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_slide.png"),
-       plot = Umap_post_harmony_per_slide, width = 6, height = 4, dpi = 300)
-
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_cluster.png"),
-       plot = Umap_post_harmony_per_cluster, width = 6, height = 4, dpi = 300)
-
-```
-
-```{r QC to see if batch effect was removed}
-
-tab_post_harmony <- table(Seurat_obj$seurat_clusters, Seurat_obj$Slide)
-
-prop_tab_post_harmony <- prop.table(tab_post_harmony, margin = 1)
-round(prop_tab_post_harmony, 2)
-
-df_post_harmony <- as.data.frame(tab_post_harmony)
-colnames(df_post_harmony) <- c("Cluster", "Slide", "Freq")
-
-ggplot(df_post_harmony, aes(x = Cluster, y = Freq, fill = Slide)) +
-  geom_bar(stat = "identity", position = "fill") +
-  ylab("Proportion within cluster") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-emb_post_harmony <- Embeddings(Seurat_obj, "harmony")
-slide_post_harmony <- factor(Seurat_obj$Slide)
-
-# function to get R² of Slide for each dimension
-get_r2 <- function(x, batch) {
-  summary(lm(x ~ batch))$adj.r.squared
+for (r in resolutions) {
+  Seurat_obj <- FindClusters(Seurat_obj,
+                              graph.name = "SCT_harmony_snn",
+                              resolution = r,
+                              algorithm = 1,
+                              random.seed = 1511,
+                              cluster.name = paste0("SCT_Harmony_Cluster_res.", r))
 }
 
-n_dims <- min(10, ncol(emb_post_harmony))
-
-r2s_post_harmony <- apply(emb_post_harmony[, seq_len(n_dims), drop = FALSE], 
-                          2, get_r2, batch = factor(Seurat_obj$Slide)) 
-
-r2s_post_harmony_df <- r2s_post_harmony %>% 
-  tibble(PC = factor(names(r2s_post_harmony), levels = names(r2s_post_harmony)), 
-         R2 = as.numeric(r2s_post_harmony)) %>% 
-  select(PC, R2)
-
-R2s_barplot_post_batch <- ggplot(r2s_post_harmony_df, aes(x = PC, y = R2)) + 
-  geom_col() +
-  labs(title = expression(R^2 ~ "of slide per PC after batch correction"), 
-       x = "Principal component", y = expression("Adjusted" ~ R^2)) +
-  theme_bw() 
-
-Umap_celltypes_post_har <- DimPlot(Seurat_obj, 
-                                   reduction = "umap", 
-                                   label = TRUE, 
-                                   repel = TRUE, 
-                                   group.by = "RNA_Export_Cell.Typing.InSituType.1_1_clusters") +
-  ggtitle("UMAP after batch correction by InSituType clusters")
-
-R2s_barplot_post_batch
-Umap_celltypes_post_har
-
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/R2s_barplot_post_batch.png"),
-       plot = R2s_barplot_post_batch, width = 16, height = 8, dpi = 300)
-
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/Umap_celltypes_post_harmony.png"),
-       plot = Umap_celltypes_post_har, width = 16, height = 8, dpi = 300)
+Seurat_obj <- RunUMAP(Seurat_obj, 
+                      reduction = "Harmony_SCT", 
+                      dims = 1:30,
+                      reduction.name = "UMAP_SCT_Harmony")
 
 ```
- 
+
+```{r Save the object}
+
+SaveSeuratRds(object = Seurat_obj, file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
+
+```
+
+```{r Create a small subset for local analysis}
+
+# set.seed(1511)
+# cells_keep <- Seurat_obj@meta.data %>% 
+#   rownames_to_column(var = "cell_ID") %>% 
+#   group_by("Group") %>% 
+#   slice_sample(n = floor(3000 / n_distinct("Group"))) %>% 
+#   pull(cell_ID)
+# 
+# Seurat_small <- subset(Seurat_obj, cells = cells_keep)
+# 
+# saveRDS(Seurat_small, file = file.path(main_dir, "Data", "Edited_data", "Seurat_small_3k_batchcorrected.rds"))
+
+```
+
+
+```{r Check the batch corrected projection}
+
+Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
+
+
+UMAP_RNA <- DimPlot(Seurat_obj, reduction = "UMAP_RNA", group.by = "Group") +
+  labs(title = "UMAP after batch correction by treatment",
+       subtitle = "Using Log normalised counts",
+       x = "UMAP 1", 
+       y = "UMAP 2") +                     
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
+
+UMAP_SCT <- DimPlot(Seurat_obj, reduction = "UMAP_SCT", group.by = "Group") +
+  labs(title = "UMAP after batch correction by treatment",
+       subtitle = "Using SCT corrected counts",
+       x = "UMAP 1", 
+       y = "UMAP 2") +                     
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
+
+UMAP_RNA_Harmony <- DimPlot(Seurat_obj, reduction = "UMAP_RNA_Harmony", group.by = "Group") +
+  labs(title = "UMAP after batch correction by treatment",
+       subtitle = "Using RNA Harmony counts",
+       x = "UMAP 1", 
+       y = "UMAP 2") +                     
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
+
+UMAP_SCT_Harmony <- DimPlot(Seurat_obj, reduction = "UMAP_SCT_Harmony", group.by = "Group") +
+  labs(title = "UMAP after batch correction by treatment",
+       subtitle = "Using SCT Harmony counts",
+       x = "UMAP 1", 
+       y = "UMAP 2") +                     
+  theme(legend.title = element_blank(), 
+        plot.title = element_text(face = "bold"))
+
+UMAP_RNA
+UMAP_SCT
+UMAP_RNA_Harmony
+UMAP_SCT_Harmony
+
+# ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_slide.png"),
+#        plot = Umap_post_harmony_per_slide, width = 6, height = 4, dpi = 300)
+# 
+# ggsave(filename = file.path(main_dir, "Results/After_Normalisation_pre_Batch/UMAP_post_batch_per_cluster.png"),
+#        plot = Umap_post_harmony_per_cluster, width = 6, height = 4, dpi = 300)
+
+```
+
+```{r QC to see if batch effect was removed (and from where)}
+
+res_sct_harmony <- AssessClusterBatch(Seurat_obj,
+                                      cluster_col = "SCT_Harmony_Cluster_res.0.25",
+                                      group_col = "Slide",
+                                      reduction = "Harmony_SCT",
+                                      dims_use = 1:10, 
+                                      save = TRUE,
+                                      out_dir = file.path(main_dir, "Results/QC_Images/Batch_QC"), 
+                                      file_prefix = "SCT_Harmony_by_Slide")
+
+res_log_harmony <- AssessClusterBatch(Seurat_obj,
+                                      cluster_col = "RNA_Harmony_Cluster_res.0.25",
+                                      group_col = "Slide",
+                                      reduction = "Harmony_RNA",
+                                      dims_use = 1:10, 
+                                      save = TRUE,
+                                      out_dir = file.path(main_dir, "Results/QC_Images/Batch_QC"), 
+                                      file_prefix = "LOG_Harmony_by_Slide")
+
+```
+
 ```{r Get the cell proportions per cluster}
 
-tab_celltypes <- table(Seurat_obj$seurat_clusters, Seurat_obj$RNA_Export_Cell.Typing.InSituType.1_1_clusters)
+tab_celltypes <- table(Seurat_obj$RNA_Harmony_Cluster_res.0.25, Seurat_obj$RNA_Export_Cell.Typing.InSituType.1_1_clusters)
 tab_celltypes
 
 prop_celltypes <- prop.table(tab_celltypes, margin = 1)  # proportions within cluster
@@ -249,35 +377,7 @@ Celltype_fqs_post_batch <- ggplot(df_celltype_fqs, aes(x = Cluster, y = Freq, fi
 tab_slide_major <- table(Seurat_obj$RNA_Export_Cell.Typing.InSituType.1_1_clusters, Seurat_obj$Slide)
 round(prop.table(tab_slide_major, margin = 1), 2)
 
-ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/Celltype_fqs_post_batch.png"),
-       plot = Celltype_fqs_post_batch, width = 16, height = 8, dpi = 300)
-
-SaveSeuratRds(object = Seurat_obj, file = file.path(main_dir, "Data", "Edited_data", "Seurat_batch_corrected.Rds"))
-
-```
-
-```{r Reload the batch corrected object}
-
-Seurat_obj <- readRDS(file = file.path(main_dir, "Data", "Edited_data", "Seurat_obj_after_batch.Rds"))
-
-```
-
-```{r Slide intergrated marker sets}
-
-# Idents_old <- Idents(Seurat_obj)
-Idents(Seurat_obj) <- "RNA_Export_Cell.Typing.InSituType.1_1_clusters"
-
-markers_major <- FindAllMarkers(Seurat_obj,
-                                only.pos = TRUE,
-                                logfc.threshold = 0.25,
-                                min.pct = 0.1,
-                                test.use = "wilcox")
-
-top20_major <- markers_major %>% 
-  group_by(cluster) %>% 
-  top_n(20, wt = avg_log2FC)
-
-write_csv(x = top20_major, file = file.path(main_dir, "Results/Tables/Top_20_Markers_after_batch_per_cluster.csv"))
-write_csv(x = markers_major, file = file.path(main_dir, "Results/Tables/FindAllMarkers_after_batch_per_cluster.csv"))
+# ggsave(filename = file.path(main_dir, "Results/After_Normalisation_post_Batch/Celltype_fqs_post_batch.png"),
+#        plot = Celltype_fqs_post_batch, width = 16, height = 8, dpi = 300)
 
 ```
